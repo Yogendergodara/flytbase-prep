@@ -1,19 +1,58 @@
 video:
   path: data/sample.mp4
   target_fps: 3            # KNOB: 30fps -> 3fps = 10x less compute
-  clip_seconds: 4          # temporal window handed to the VLM
-  clip_overlap: 0.5
+  clip_seconds: 4          # temporal window handed to the VLM, centred on
+                           # the moment that justified the event (events.py
+                           # clip_window). clip_overlap was removed: it dates
+                           # from an earlier whole-video sliding-window design;
+                           # the per-event architecture has no window to
+                           # overlap against
+  max_seconds: null        # null = whole file. fit.py sets this from --fit-seconds
+
+stream:
+  enabled: false           # KNOB: --preset live. Emit alerts DURING the run
+  window_seconds: 30       # KNOB: how much history each pass reasons over
+  retire_after: 60         # KNOB: drop tracklets idle this long
+  max_track_seconds: 180   # KNOB: trim history for tracks that NEVER go
+                           # idle (a person standing in frame for hours) -
+                           # retire_after alone does not bound these. Must
+                           # stay well above loiter_seconds/abandoned_seconds
+                           # or dwell_seconds loses the evidence it needs
+  rejudge_margin_seconds: 15   # KNOB: re-send an ongoing event to the VLM
+                               # once its window has grown by this much
 
 detector:
-  weights: yolo11n.pt      # KNOB: n/s/m/l - accuracy vs FPS
-  imgsz: 960               # KNOB: 1280+ for small aerial objects
+  weights: yolo11s.pt      # KNOB: n/s/m/l - accuracy vs FPS. s matches the
+                           # overnight fine-tune; swap in
+                           # weights/aerial_night/weights/best.pt after F0
+  imgsz: 1280              # KNOB: 1280 for aerial - a top-down person is
+                           # 15px after a 640 resize and vanishes
   conf: 0.25               # KNOB: low = more recall, more FP downstream
   iou: 0.5                 # NMS IoU
-  classes: [0, 1, 2, 3, 5, 7]   # person, bicycle, car, motorcycle, bus, truck
+  classes: [0, 1, 2, 3, 5, 7]   # COCO ids: person, bicycle, car, motorcycle,
+                                 # bus, truck. VisDrone-trained weights use a
+                                 # DIFFERENT 10-class map (see scripts/
+                                 # make_night_yaml.py NAMES) - switching
+                                 # `weights` to a VisDrone checkpoint without
+                                 # also changing `classes` to [0..9] and
+                                 # `events.person_classes` to [0,1] will
+                                 # silently filter valid detections and
+                                 # misclassify event types
   max_det: 300
-  half: true
+  half: true               # auto-disabled on CPU - half=True there raises
   device: null             # null = auto, 0 = cuda:0, "cpu"
   tracker: bytetrack.yaml  # KNOB: botsort.yaml adds ReID (fewer ID switches)
+  tracker_overrides:       # KNOB: merged onto the base tracker YAML at
+                           # runtime (pipeline/tracks.py:_resolve_tracker).
+                           # null/absent = use the base file unmodified.
+    track_high_thresh: null    # KNOB: confident-box association threshold
+    track_low_thresh: null     # KNOB: ByteTrack's second-stage, low-conf boxes
+    new_track_thresh: null     # KNOB: higher = fewer ghost tracks
+    track_buffer: null         # KNOB: frames a track survives occlusion
+  sahi:
+    enabled: false         # KNOB: big recall jump on aerial, big FPS cost
+    slice: 640             # KNOB: slice size in px
+    overlap: 0.2           # KNOB: slice overlap ratio
 
 events:
   min_track_frames: 6      # refuse to judge a 2-frame blip
@@ -21,18 +60,44 @@ events:
   loiter_radius_px: 45     # KNOB: dwell = stayed inside this radius
   speed_z_threshold: 2.5   # KNOB: per-class speed z-score
   abandoned_seconds: 20.0
+  abandoned_radius_px: 25  # KNOB: tighter than loiter - near-total immobility
+  density_z_threshold: 2.0 # KNOB: crowding vs fit.py's density baseline
+  hover_pan_px_threshold: null  # KNOB: null=off (zero cost). If set, e.g. 15,
+                                 # a speed_anomaly event measures camera pan via
+                                 # optical flow (pipeline/camera_motion.py) and
+                                 # discounts geo_score when the CAMERA moved,
+                                 # not the object - #G-H
+  person_classes: [0]      # KNOB: people loiter; only non-people are
+                           # "abandoned". MUST change when detector.weights
+                           # changes class semantics:
+                           #   COCO checkpoint (yolo11*.pt)      -> [0]
+                           #   VisDrone-trained (best.pt)        -> [0, 1]
+                           #     (0=pedestrian, 1=people - VisDrone has TWO
+                           #     human classes; missing either one means a
+                           #     standing person gets flagged as an
+                           #     "abandoned object")
   restricted_zones: []     # [[[x,y],[x,y],[x,y],[x,y]]] pixel polygons
   candidate_floor: 0.35    # below this, never wake the VLM
 
 open_vocab:
   backend: none            # none | yoloworld
-  weights: yolov8s-world.pt
+  weights: yolov8l-worldv2.pt   # the brief's YOLO-World-L. Drop to
+                                # yolov8s-worldv2.pt only if FPS forces it,
+                                # and say so rather than leaving a silent
+                                # mismatch with the slide
   prompts:                 # KNOB: this list is your real tuning surface
     - person climbing fence
     - abandoned bag
     - vehicle on footpath
   conf: 0.15
   frames_per_event: 3
+
+night:
+  enabled: false           # KNOB: --set night.enabled=true
+  conf: 0.15               # KNOB: separate, LOWER than detector.conf
+  clahe: false             # KNOB: contrast recovery before inference (slower path)
+  clahe_clip: 2.0          # KNOB: higher = more contrast AND more amplified noise
+  clahe_grid: 8
 
 reid:
   backend: none            # none | osnet
@@ -50,11 +115,21 @@ vlm:
   frames_per_event: 6      # KNOB: biggest latency lever after max_pixels
   max_pixels: 401408       # 512*28*28. KNOB: halve it, halve the latency
   max_new_tokens: 128
-  temperature: 0.0         # deterministic judgements
+  temperature: 0.0         # deterministic judgements (0 -> do_sample=False)
+  load_4bit: true          # KNOB: ~7GB fp16 -> ~2.5GB. Needs bitsandbytes+CUDA
+  smolvlm_model_id: HuggingFaceTB/SmolVLM2-2.2B-Instruct   # backend: smolvlm
+
+alerts:
+  transport:
+    webhook_url: null      # KNOB: POST each alert as JSON here (retried x2).
+                           # No auth/dashboard/queue - a single URL, deliberately
+    sqlite_path: null      # KNOB: e.g. out/incidents.db - local persistent
+                           # incident store, no server. null = don't write one
 
 fuse:
   w_geometric: 0.45
   w_vlm: 0.55
+  w_novelty: 0.0           # KNOB: 0 = off. Needs out/normal_bank.npy from fit.py
   raise_threshold: 0.62    # hysteresis: raise high...
   clear_threshold: 0.45    # ...clear low. Kills flicker.
   min_event_seconds: 1.5

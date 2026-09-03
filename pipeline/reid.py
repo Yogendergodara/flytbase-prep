@@ -8,6 +8,7 @@ they cannot be the same physical object.
 """
 import numpy as np
 import cv2
+from pipeline.video_io import seek_exact, open_capture
 
 
 class NoopEmbedder:
@@ -36,20 +37,19 @@ class OSNetEmbedder:
         return v / n
 
 
-def crop_at(video_path, t, cx, cy, w, h):
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
-    ok, frame = cap.read()
-    cap.release()
+def crop_at(cap, t, cx, cy, w, h):
+    """Crop from an ALREADY-OPEN capture. Opening a VideoCapture per crop
+    meant ~40 tracklets x 3 crops = 120 open/seek/close cycles per run."""
+    ok, frame = seek_exact(cap, t)
     if not ok:
         return None
-    x0, y0 = int(cx - w / 2), int(cy - h / 2)
+    x0, y0 = max(0, int(cx - w / 2)), max(0, int(cy - h / 2))
     x1, y1 = int(cx + w / 2), int(cy + h / 2)
-    x0, y0 = max(0, x0), max(0, y0)
-    return frame[y0:y1, x0:x1]
+    crop = frame[y0:y1, x0:x1]
+    return crop if crop.size else None
 
 
-def tracklet_embedding(video_path, tr, embedder, k=3, min_crops=2):
+def tracklet_embedding(cap, tr, embedder, k=3, min_crops=2):
     """Average of k crops across the tracklet's lifetime. None if too thin
     to trust - a single frame is not a re-id signature."""
     n = tr.n()
@@ -58,7 +58,7 @@ def tracklet_embedding(video_path, tr, embedder, k=3, min_crops=2):
     idxs = np.linspace(0, n - 1, min(k, n)).astype(int)
     embs = []
     for i in idxs:
-        crop = crop_at(video_path, tr.t[i], tr.cx[i], tr.cy[i], tr.w[i], tr.h[i])
+        crop = crop_at(cap, tr.t[i], tr.cx[i], tr.cy[i], tr.w[i], tr.h[i])
         e = embedder.embed(crop)
         if e is not None:
             embs.append(e)
@@ -69,28 +69,78 @@ def tracklet_embedding(video_path, tr, embedder, k=3, min_crops=2):
 
 
 def link_identities(tracks, video_path, cfg):
-    """Returns {track_id: identity_id}. Tracklets that never got a usable
-    embedding keep their own track_id as their identity - no claim is made
-    about them rather than a guessed one."""
+    """Returns (identity, linked): {track_id: identity_id} and the set of
+    track_ids that were actually merged with something.
+
+    Union-find, not chained assignment: with plain `identity[b] = identity[a]`
+    a link found later could overwrite an earlier group, so a<->b<->c came out
+    inconsistent depending on iteration order. Union-find makes the grouping
+    order-independent and transitive.
+
+    Tracklets with no usable embedding keep their own track_id and stay out of
+    `linked` - no claim is made about them rather than a guessed one.
+    """
     r = cfg["reid"]
     backend = r.get("backend", "none")
     embedder = NoopEmbedder() if backend == "none" else OSNetEmbedder(cfg)
 
-    embs = {tid: tracklet_embedding(video_path, tr, embedder, r.get("crops_per_track", 3))
-            for tid, tr in tracks.items()}
+    if backend == "osnet":
+        person_classes = set(cfg.get("events", {}).get(
+            "person_classes", [cfg.get("events", {}).get("person_class", 0)]))
+        non_person = {tr.cls for tr in tracks.values()} - person_classes
+        if non_person:
+            print(f"[reid] WARNING: OSNet is trained for person re-ID; "
+                  f"classes {sorted(non_person)} in this scene are not people. "
+                  f"Their embeddings/links are unvalidated - treat vehicle "
+                  f"re-id as experimental until measured.")
 
-    identity = {tid: tid for tid in tracks}
+    cap = open_capture(video_path)           # one capture for every crop
+    try:
+        embs = {tid: tracklet_embedding(cap, tr, embedder, r.get("crops_per_track", 3))
+                for tid, tr in tracks.items()}
+    finally:
+        cap.release()
+
+    parent = {tid: tid for tid in tracks}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]     # path halving
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[max(rx, ry)] = min(rx, ry)  # lowest track_id wins as the id
+            return True
+        return False
+
     threshold = r.get("cosine_threshold", 0.7)
-    ids = [tid for tid, e in embs.items() if e is not None]
+    linked = set()
 
-    for i, a in enumerate(ids):
-        for b in ids[i + 1:]:
-            ta, tb = tracks[a], tracks[b]
-            overlaps = not (ta.t[-1] < tb.t[0] or tb.t[-1] < ta.t[0])
-            if overlaps:
-                continue  # cannot be the same object if seen at the same time
-            sim = float(np.dot(embs[a], embs[b]))
-            if sim >= threshold:
-                identity[b] = identity[a]
+    # #11: bucket by class BEFORE generating pairs, instead of generating
+    # every cross-class pair and skipping it inside the loop. Same asymptotic
+    # worst case (one giant class still pays full O(n^2)), but the common
+    # case - several classes, none of them huge - drops from one O(n^2) over
+    # everything to a sum of much smaller O(k^2) per class.
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for tid, e in embs.items():
+        if e is not None:
+            buckets[tracks[tid].cls].append(tid)
 
-    return identity
+    for ids in buckets.values():
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                ta, tb = tracks[a], tracks[b]
+                overlaps = not (ta.t[-1] < tb.t[0] or tb.t[-1] < ta.t[0])
+                if overlaps:
+                    continue  # cannot be the same object if seen at the same time
+                if float(np.dot(embs[a], embs[b])) >= threshold:
+                    union(a, b)
+                    linked.add(a)
+                    linked.add(b)
+
+    identity = {tid: find(tid) for tid in tracks}
+    return identity, linked

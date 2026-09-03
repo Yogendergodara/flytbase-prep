@@ -1,14 +1,37 @@
-ultralytics>=8.3.0
-opencv-python
-numpy
-scikit-learn
-pyyaml
-# VLM stage (skip if no GPU; pipeline runs with vlm.backend=none)
-torch
-transformers>=4.49.0
-accelerate
-qwen-vl-utils[decord]
-# optional: small-object aerial detection
-sahi
-# optional: embedding-based normal-bank
-open_clip_torch
+# #26: versions pinned to a known-good combination. `torch` is deliberately
+# UNPINNED and should not be pip-installed on Kaggle at all - Kaggle's base
+# image ships a CUDA-matched torch build, and `pip install torch` there is
+# the single most common way to break GPU access on that platform. Locally
+# (CPU-only, vlm.backend=none) any recent torch works; pin it yourself if you
+# need a specific CUDA version off Kaggle.
+ultralytics==8.3.40
+opencv-python==4.10.0.84
+numpy==1.26.4
+scikit-learn==1.5.2
+pyyaml==6.0.2
+pillow==10.4.0
+# fetches the VisDrone-pretrained base checkpoint in train_aerial.py's
+# PRETRAINED lookup - ships as a transitive dep of transformers too, pinned
+# here because it's now a direct import
+huggingface_hub==0.27.0
+
+# VLM stage - skip entirely if no GPU (pipeline runs with vlm.backend=none)
+# torch                      # use Kaggle's preinstalled build - see note above
+transformers==4.49.0
+accelerate==1.2.1
+# 4-bit loading for the VLM judge (vlm.load_4bit). CUDA only - no CPU backend.
+bitsandbytes==0.45.0
+
+# small-object tiled inference on aerial footage (scripts/sahi_recall.py)
+sahi==0.11.20
+
+# re-identification (pipeline/reid.py). The PyPI build lags upstream; if
+# FeatureExtractor import fails on Kaggle, use:
+#   pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+torchreid==0.2.5
+
+# embedding-based normal-bank + retrieval (fit.py, pipeline/retrieve.py)
+open_clip_torch==2.29.0
+
+# planned, not imported by any module yet:
+# qwen-vl-utils[decord]   - if the Qwen judge moves to video-native input

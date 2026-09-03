@@ -2,10 +2,16 @@
 
 The event footage includes night flights. Rather than hope the detector
 generalises, darken a fraction of the training set and train on both.
-Gamma down + gain down + Poisson-ish noise + mild blur ~ a real low-light sensor.
+Gamma down + gain down + additive Gaussian noise + mild blur ~ a real
+low-light sensor (not true Poisson shot noise - that would need per-pixel
+signal-dependent variance; this is the cheap, still-useful approximation).
 
     python train/make_night.py --images datasets/VisDrone/images/train \
         --labels datasets/VisDrone/labels/train --fraction 0.4
+
+Idempotent: re-running (e.g. after an interrupted Kaggle session) will not
+re-darken its own output or inflate the fraction - see the exclusion filter
+below.
 """
 import argparse, random, shutil
 from pathlib import Path
@@ -38,9 +44,20 @@ def main():
 
     rng = np.random.default_rng(a.seed)
     random.seed(a.seed)
+    # exclude our OWN prior output from the candidate pool - without this, a
+    # second run (interrupted session, or re-run by mistake) could re-darken
+    # an already-synthetic frame into "_night_night", and would count those
+    # synthetic frames toward `len(imgs)`, silently changing what --fraction
+    # means run to run
     imgs = sorted([p for p in Path(a.images).iterdir()
-                   if p.suffix.lower() in (".jpg", ".jpeg", ".png")])
-    pick = random.sample(imgs, int(len(imgs) * a.fraction))
+                   if p.suffix.lower() in (".jpg", ".jpeg", ".png")
+                   and not p.stem.endswith("_night")])
+    already = sum(1 for p in Path(a.images).iterdir() if p.stem.endswith("_night"))
+    if already:
+        print(f"[night] {already} existing *_night.* file(s) found - excluded "
+              f"from the source pool, not re-darkened")
+
+    pick = random.sample(imgs, min(int(len(imgs) * a.fraction), len(imgs)))
     lab_dir = Path(a.labels)
     made = 0
     for p in pick:

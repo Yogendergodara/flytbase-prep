@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    # Only the pure-logic suite runs in CI - no GPU here, no video fixture,
+    # no HF Hub download budget. tests/test_pipeline.py is deliberately
+    # import-safe without torch/ultralytics/cv2 at module scope for exactly
+    # this reason. Anything needing a real video or a trained model is
+    # outside what this workflow can verify - that gap is real and stays
+    # documented in CLAUDE.md, not hidden behind a green check here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy pytest pyyaml
+      - run: python -m pytest tests/ -v
+      - name: syntax-check every module (including ones tests can't import)
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys
+          bad = 0
+          for f in pathlib.Path('.').rglob('*.py'):
+              try:
+                  ast.parse(f.read_text(encoding='utf-8'))
+              except SyntaxError as e:
+                  print('SYNTAX FAIL', f, e); bad += 1
+          sys.exit(1 if bad else 0)
+          PY

@@ -2,7 +2,13 @@
 
 Frame-level ROC-AUC is the standard metric in the video-anomaly literature;
 precision/recall/F1 are threshold-dependent, so always report the threshold.
-FP-per-hour is what an operations team actually asks about.
+
+`fp_frames_per_hour` is a FRAME-level count (how many labelled-normal frames
+score above threshold) - it is what feeds AUC/F1 math but is NOT what an
+operator asks about. `fp_alerts_per_hour` (computed in eval_run.py from the
+alert list, not here) is the count an operator actually cares about: how many
+times a human got pinged for nothing. Report both; they answer different
+questions and the old single `fp_per_hour` name conflated them.
 """
 import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
@@ -29,7 +35,8 @@ def report(scores, labels, threshold, fps, latency_ms=None):
     out = {"frame_auc": round(float(roc_auc_score(labels, scores)), 4),
            "threshold": threshold, "precision": round(float(p), 4),
            "recall": round(float(r), 4), "f1": round(float(f1), 4),
-           "fp_frames": fp, "fp_per_hour": round(fp / hours, 1) if hours else None}
+           "fp_frames": fp,
+           "fp_frames_per_hour": round(fp / hours, 1) if hours else None}
     if latency_ms:
         out["p50_latency_ms"] = round(float(np.percentile(latency_ms, 50)), 1)
         out["p95_latency_ms"] = round(float(np.percentile(latency_ms, 95)), 1)
@@ -37,6 +44,12 @@ def report(scores, labels, threshold, fps, latency_ms=None):
 
 
 def sweep(scores, labels, lo=0.1, hi=0.95, n=18):
+    """Threshold sweep. Refuses as a whole rather than returning rows that
+    silently contain nothing but a threshold - report() errors on
+    single-class labels, and the old dict comprehension swallowed that."""
+    labels = np.asarray(labels).astype(int)
+    if labels.sum() == 0 or labels.sum() == len(labels):
+        return [{"error": "labels are single-class - sweep is meaningless"}]
     return [{"threshold": round(t, 3),
              **{k: v for k, v in report(scores, labels, t, 1.0).items()
                 if k in ("precision", "recall", "f1")}}

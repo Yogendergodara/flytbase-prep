@@ -7,10 +7,11 @@ because, like the VLM, it only ever looks at the ~8 candidate windows
 geometry already flagged, never the full 18,000 frames.
 """
 import cv2
+from pipeline.video_io import seek_exact
 
 
 class NoopOpenVocab:
-    def detect(self, video_path, ev, prompts):
+    def detect(self, video_path, ev, prompts=None):
         return {"hits": [], "reason": "open_vocab.backend=none - not run"}
 
 
@@ -38,8 +39,7 @@ class YoloWorldOpenVocab:
                  for i in range(k)]
         hits = []
         for t in times:
-            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
-            ok, frame = cap.read()
+            ok, frame = seek_exact(cap, t)
             if not ok:
                 continue
             r = self.model.predict(frame, conf=self.cfg["conf"], verbose=False)[0]

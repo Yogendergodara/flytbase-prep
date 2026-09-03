@@ -1,0 +1,985 @@
+<title>Aerial Anomaly Intelligence</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@500;600;700;900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap"/>
+<style>
+:root{
+  --ground:#eef2f4; --surface:#ffffff; --surface-2:#e4eaed; --sunken:#e9eef0;
+  --ink:#111a20; --ink-2:#3c4d57; --ink-3:#687c86; --ink-4:#8b9ca4;
+  --rule:#c9d4d9; --rule-2:#dce4e8;
+  --accent:#a75f13; --accent-2:#8c4f10; --accent-soft:#f7e8d5;
+  --verify:#0c6963; --verify-soft:#d6eae8;
+  --risk:#9d3527; --risk-soft:#f6dfdb;
+  --code-bg:#e9eef1; --code-ink:#1d2b33;
+  --shadow:0 1px 2px rgba(17,26,32,.06);
+  --f-disp:"Chivo","Helvetica Neue",Arial,sans-serif;
+  --f-body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0d1418; --surface:#131c22; --surface-2:#1a252c; --sunken:#101a1f;
+    --ink:#e5edf0; --ink-2:#aebdc5; --ink-3:#83959e; --ink-4:#6a7c85;
+    --rule:#28373f; --rule-2:#1f2c33;
+    --accent:#e2a460; --accent-2:#f0b878; --accent-soft:#382718;
+    --verify:#5cbcb3; --verify-soft:#11302e;
+    --risk:#e28a7e; --risk-soft:#331915;
+    --code-bg:#0b1317; --code-ink:#cfdde3;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0d1418; --surface:#131c22; --surface-2:#1a252c; --sunken:#101a1f;
+  --ink:#e5edf0; --ink-2:#aebdc5; --ink-3:#83959e; --ink-4:#6a7c85;
+  --rule:#28373f; --rule-2:#1f2c33;
+  --accent:#e2a460; --accent-2:#f0b878; --accent-soft:#382718;
+  --verify:#5cbcb3; --verify-soft:#11302e;
+  --risk:#e28a7e; --risk-soft:#331915;
+  --code-bg:#0b1317; --code-ink:#cfdde3;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--f-body); font-size:16.5px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent-2); text-decoration:none; border-bottom:1px solid var(--rule)}
+a:hover{border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+/* ---------- masthead ---------- */
+.masthead{
+  border-bottom:1px solid var(--rule); background:var(--surface);
+}
+.mast-in{max-width:1180px; margin:0 auto; padding:38px 32px 0}
+.eyebrow{
+  font-family:var(--f-mono); font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 14px;
+}
+h1{
+  font-family:var(--f-disp); font-weight:900; font-size:clamp(30px,4.6vw,50px);
+  line-height:1.02; letter-spacing:-.022em; margin:0 0 6px; text-wrap:balance;
+  max-width:22ch;
+}
+.subtitle{
+  font-family:var(--f-disp); font-weight:600; font-size:clamp(15px,1.7vw,18px);
+  color:var(--ink-2); margin:0 0 26px; letter-spacing:-.005em;
+}
+.thesis{
+  font-size:19px; line-height:1.5; max-width:60ch; color:var(--ink);
+  border-left:3px solid var(--accent); padding:2px 0 2px 18px; margin:0 0 28px;
+}
+.thesis em{font-style:italic; color:var(--ink-2)}
+.metastrip{
+  display:flex; flex-wrap:wrap; gap:0; border-top:1px solid var(--rule-2);
+  margin-bottom:0;
+}
+.metacell{
+  flex:1 1 150px; padding:13px 18px 15px; border-right:1px solid var(--rule-2);
+}
+.metacell:last-child{border-right:0}
+.metacell dt{
+  font-family:var(--f-mono); font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-4); margin:0 0 4px;
+}
+.metacell dd{
+  margin:0; font-family:var(--f-disp); font-weight:600; font-size:14.5px;
+  color:var(--ink); font-variant-numeric:tabular-nums;
+}
+/* the pipeline's own stage trace, as the masthead rule */
+.trace{
+  display:flex; gap:0; overflow-x:auto; border-top:1px solid var(--rule);
+  background:var(--sunken); font-family:var(--f-mono); font-size:10.5px;
+  scrollbar-width:thin;
+}
+.trace span{
+  white-space:nowrap; padding:9px 14px; color:var(--ink-3);
+  border-right:1px solid var(--rule-2);
+}
+.trace span b{color:var(--accent); font-weight:500}
+
+/* ---------- shell ---------- */
+.shell{
+  max-width:1180px; margin:0 auto; padding:0 32px 90px;
+  display:grid; grid-template-columns:212px minmax(0,1fr); gap:52px;
+  align-items:start;
+}
+nav.rail{
+  position:sticky; top:0; max-height:100vh; overflow-y:auto;
+  padding:34px 0 40px; scrollbar-width:thin;
+}
+.rail-title{
+  font-family:var(--f-mono); font-size:10px; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--ink-4);
+  padding-bottom:10px; border-bottom:1px solid var(--rule); margin-bottom:12px;
+}
+.nav-part{
+  display:block; font-family:var(--f-disp); font-weight:700; font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3);
+  margin:20px 0 8px; border:0;
+}
+.nav-part:hover{color:var(--accent)}
+.nav-sec{
+  display:grid; grid-template-columns:22px 1fr; gap:6px; border:0;
+  font-family:var(--f-disp); font-weight:500; font-size:13px; line-height:1.35;
+  color:var(--ink-2); padding:4px 0;
+}
+.nav-sec:hover{color:var(--accent)}
+.nav-num{
+  font-family:var(--f-mono); font-size:11px; color:var(--ink-4);
+  font-variant-numeric:tabular-nums;
+}
+
+main{padding-top:34px; min-width:0}
+main > p, main > ul, main > ol, main > blockquote, main > h4, main > h5{max-width:68ch}
+
+/* ---------- headings ---------- */
+h2.part{
+  font-family:var(--f-disp); font-weight:900; font-size:13px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--accent); margin:64px 0 6px;
+  padding-bottom:12px; border-bottom:2px solid var(--accent);
+}
+h3{
+  font-family:var(--f-disp); font-weight:700; font-size:26px; line-height:1.14;
+  letter-spacing:-.016em; margin:52px 0 16px; text-wrap:balance; color:var(--ink);
+  padding-top:6px;
+}
+h4{
+  font-family:var(--f-disp); font-weight:700; font-size:17.5px; line-height:1.25;
+  letter-spacing:-.008em; margin:38px 0 12px; color:var(--ink); text-wrap:balance;
+}
+h5{
+  font-family:var(--f-disp); font-weight:600; font-size:14px; margin:26px 0 10px;
+  color:var(--ink-2); letter-spacing:.01em;
+}
+p{margin:0 0 16px}
+hr{border:0; border-top:1px solid var(--rule-2); margin:44px 0}
+strong{font-weight:600; color:var(--ink)}
+em{font-style:italic}
+
+ul,ol{margin:0 0 18px; padding-left:22px}
+li{margin-bottom:8px}
+li::marker{color:var(--ink-4)}
+
+blockquote{
+  margin:26px 0; padding:18px 22px; background:var(--surface);
+  border-left:3px solid var(--verify); border-radius:0 3px 3px 0;
+  box-shadow:var(--shadow);
+}
+blockquote p{margin:0; font-size:17.5px; line-height:1.55; color:var(--ink)}
+
+/* ---------- code ---------- */
+code{
+  font-family:var(--f-mono); font-size:.855em; background:var(--code-bg);
+  color:var(--code-ink); padding:1.5px 5px; border-radius:2px;
+  word-break:break-word;
+}
+.codewrap{position:relative; margin:24px 0}
+.codelang{
+  position:absolute; top:0; right:0; font-family:var(--f-mono); font-size:9.5px;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--ink-4);
+  background:var(--surface-2); padding:4px 9px; border-radius:0 3px 0 3px;
+}
+pre.code{
+  margin:0; background:var(--code-bg); border:1px solid var(--rule-2);
+  border-radius:3px; padding:18px 20px; overflow-x:auto;
+  font-family:var(--f-mono); font-size:12.5px; line-height:1.62;
+  color:var(--code-ink); scrollbar-width:thin;
+}
+pre.code code{background:none; padding:0; font-size:inherit; color:inherit}
+
+/* ---------- diagrams ---------- */
+figure.diagram{
+  margin:30px 0; padding:22px 18px; background:var(--surface);
+  border:1px solid var(--rule-2); border-radius:3px; overflow-x:auto;
+  text-align:center; scrollbar-width:thin;
+}
+figure.diagram pre.mermaid{margin:0; background:none; border:0; text-align:center}
+
+/* ---------- tables ---------- */
+.tablewrap{
+  margin:26px 0; overflow-x:auto; border:1px solid var(--rule-2);
+  border-radius:3px; background:var(--surface); box-shadow:var(--shadow);
+  scrollbar-width:thin;
+}
+table{border-collapse:collapse; width:100%; font-family:var(--f-disp); font-size:13.5px}
+thead th{
+  text-align:left; font-weight:700; font-size:10.5px; letter-spacing:.11em;
+  text-transform:uppercase; color:var(--ink-3); background:var(--surface-2);
+  padding:11px 14px; border-bottom:1px solid var(--rule); white-space:nowrap;
+}
+tbody td{
+  padding:11px 14px; border-bottom:1px solid var(--rule-2); vertical-align:top;
+  line-height:1.5; color:var(--ink-2);
+}
+tbody tr:last-child td{border-bottom:0}
+tbody td:first-child{color:var(--ink); font-weight:500}
+tbody td code{font-size:11.8px}
+tbody tr:hover td{background:var(--sunken)}
+
+/* ---------- claim chips ---------- */
+.chip{
+  display:inline-block; font-family:var(--f-mono); font-size:10px;
+  letter-spacing:.1em; text-transform:uppercase; padding:2px 7px;
+  border-radius:2px; white-space:nowrap; vertical-align:1px; font-weight:500;
+}
+.chip-target{background:var(--accent-soft); color:var(--accent)}
+.chip-measured{background:var(--verify-soft); color:var(--verify)}
+.chip-derived{background:var(--surface-2); color:var(--ink-3)}
+
+/* ---------- footer ---------- */
+footer{
+  max-width:1180px; margin:0 auto; padding:26px 32px 60px;
+  border-top:1px solid var(--rule); font-family:var(--f-mono);
+  font-size:11px; letter-spacing:.06em; color:var(--ink-4);
+  display:flex; flex-wrap:wrap; gap:8px 26px;
+}
+
+@media (max-width:940px){
+  .shell{grid-template-columns:1fr; gap:0; padding:0 22px 70px}
+  nav.rail{
+    position:static; max-height:none; padding:26px 0 8px;
+    border-bottom:1px solid var(--rule); margin-bottom:8px;
+  }
+  .rail-inner{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:2px 18px;
+  }
+  .nav-part{margin:14px 0 4px; grid-column:1/-1}
+  .mast-in{padding:30px 22px 0}
+  footer{padding:24px 22px 50px}
+  h3{font-size:22px; margin-top:42px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<header class="masthead">
+  <div class="mast-in">
+    <p class="eyebrow">Design of record &middot; HLD + LLD &middot; FlytBase Visual Intelligence Hackathon</p>
+    <h1>Aerial Anomaly Intelligence</h1>
+    <p class="subtitle">Small-VLM anomaly detection on long-form drone and CCTV video</p>
+    <p class="thesis">A small VLM cannot watch every frame, so it is the judge at the end of a
+      cheap cascade &mdash; <em>eight calls instead of eighteen thousand.</em></p>
+  </div>
+  <div class="mast-in" style="padding-bottom:0">
+    <dl class="metastrip"><div class="metacell"><dt>Version</dt><dd>1.0</dd></div><div class="metacell"><dt>Date</dt><dd>4 Sept 2026</dd></div><div class="metacell"><dt>Codebase</dt><dd>2,224 LOC &middot; 24 modules</dd></div><div class="metacell"><dt>Requirements</dt><dd>21 FR &middot; 38 NFR</dd></div><div class="metacell"><dt>Open gaps</dt><dd>10, enumerated</dd></div><div class="metacell"><dt>Verified</dt><dd>0 &mdash; nothing has run</dd></div></dl>
+  </div>
+  <div class="trace"><span><b>[0]</b> config &middot; scene fit</span><span><b>[1-2]</b> detect &middot; track</span><span><b>[2b]</b> re-id</span><span><b>[3]</b> candidate events</span><span><b>[3b]</b> open-vocab</span><span><b>[4]</b> vlm judge</span><span><b>[5]</b> fuse &middot; suppress</span><span><b>[5b]</b> first alert</span><span><b>[6]</b> alerts.json</span><span><b>[7]</b> fps sustained</span></div>
+</header>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-title">Contents</div>
+    <div class="rail-inner"><a class="nav-part" href="#part-i-context-and-requirements">Context and Requirements</a>
+<a class="nav-sec" href="#1-context"><span class="nav-num">1</span><span>Context</span></a>
+<a class="nav-sec" href="#2-design-principles"><span class="nav-num">2</span><span>Design principles</span></a>
+<a class="nav-sec" href="#3-requirements"><span class="nav-num">3</span><span>Requirements</span></a>
+<a class="nav-part" href="#part-ii-high-level-design">High-Level Design</a>
+<a class="nav-sec" href="#4-architecture"><span class="nav-num">4</span><span>Architecture</span></a>
+<a class="nav-sec" href="#5-deployment-view"><span class="nav-num">5</span><span>Deployment view</span></a>
+<a class="nav-sec" href="#6-control-plane-configuration-and-operability"><span class="nav-num">6</span><span>Control plane</span></a>
+<a class="nav-sec" href="#7-availability-design"><span class="nav-num">7</span><span>Availability design</span></a>
+<a class="nav-sec" href="#8-consistency-design"><span class="nav-num">8</span><span>Consistency design</span></a>
+<a class="nav-sec" href="#9-performance-design"><span class="nav-num">9</span><span>Performance design</span></a>
+<a class="nav-sec" href="#10-scaling-beyond-one-feed"><span class="nav-num">10</span><span>Scaling beyond one feed</span></a>
+<a class="nav-part" href="#part-iii-low-level-design">Low-Level Design</a>
+<a class="nav-sec" href="#11-data-contracts"><span class="nav-num">11</span><span>Data contracts</span></a>
+<a class="nav-sec" href="#12-module-specifications"><span class="nav-num">12</span><span>Module specifications</span></a>
+<a class="nav-sec" href="#13-algorithms-in-detail"><span class="nav-num">13</span><span>Algorithms in detail</span></a>
+<a class="nav-sec" href="#14-observability"><span class="nav-num">14</span><span>Observability</span></a>
+<a class="nav-sec" href="#15-verification-and-evaluation-strategy"><span class="nav-num">15</span><span>Verification and evaluation strategy</span></a>
+<a class="nav-sec" href="#16-traceability-matrix"><span class="nav-num">16</span><span>Traceability matrix</span></a>
+<a class="nav-sec" href="#17-as-built-status-and-known-gaps"><span class="nav-num">17</span><span>As-built status and known gaps</span></a>
+<a class="nav-sec" href="#18-risk-register"><span class="nav-num">18</span><span>Risk register</span></a>
+<a class="nav-part" href="#part-iv-operations">Operations</a>
+<a class="nav-sec" href="#19-runbooks-and-reference"><span class="nav-num">19</span><span>Runbooks and reference</span></a>
+<a class="nav-sec" href="#the-one-sentence"><span class="nav-num"></span><span>The one sentence</span></a></div>
+  </nav>
+  <main><h4 id="how-to-read-this-document">How to read this document</h4>
+<ul>
+<li><strong>§1–§3</strong> state the problem and the requirements. If you read one part, read <strong>§3</strong>.</li>
+<li><strong>§4–§10</strong> are the <strong>HLD</strong>: the components, why the shape is a cascade, and how each of the four quality goals — <em>fast, accurate, available, consistent</em> — is bought by a specific structural decision rather than by hope.</li>
+<li><strong>§11–§16</strong> are the <strong>LLD</strong>: data contracts, module interfaces, algorithms with complexity, refusal semantics, observability, and a requirement→code→verification traceability matrix.</li>
+<li><strong>§17</strong> is an honest as-built status, including seven open gaps.</li>
+</ul>
+<h4 id="claim-strength-convention">Claim-strength convention</h4>
+<div class="tablewrap"><table><thead><tr><th>Tag</th><th>Meaning</th></tr></thead><tbody><tr><td><span class="chip chip-measured">MEASURED</span></td><td>Produced by a run, with the command that produced it recorded</td></tr><tr><td><span class="chip chip-target">TARGET</span></td><td>A budget the design is built to hit, not yet verified</td></tr><tr><td><span class="chip chip-derived">DERIVED</span></td><td>Arithmetic from other numbers in this document, not an observation</td></tr></tbody></table></div>
+<p><strong>At v1.0, no performance or accuracy NFR carries <span class="chip chip-measured">MEASURED</span>.</strong> Nothing in this repository has been executed against real data; the fine-tune has never been launched. That is a statement about project phase, and it is deliberately visible here rather than hidden behind plausible figures. §15 defines how each target becomes a measurement.</p>
+<hr/>
+<h2 class="part" id="part-i-context-and-requirements">Part I — Context and Requirements</h2>
+<h3 id="1-context">1. Context</h3>
+<h4 id="1-1-the-problem-as-posed">1.1 The problem as posed</h4>
+<p>The arena supplies hours of real urban drone footage, including night flights, plus benchmark datasets, and asks whether a <em>small</em> VLM can detect anomalies in <em>live</em> video in <em>real time</em>. Three self-paced levels are implied by the published scope list:</p>
+<div class="tablewrap"><table><thead><tr><th>Level</th><th>What it asks for</th><th>Where this design answers it</th></tr></thead><tbody><tr><td><strong>L1</strong></td><td><strong>Detect and score.</strong> An anomaly score, a threshold, an evaluation number. Everyone clears this.</td><td>§4 cascade · §12.5 events · §12.8 fusion · §12.11 evaluation</td></tr><tr><td><strong>L2</strong></td><td><strong>Context and identity.</strong> Tracking, dwell, zones, re-ID — anomalies that exist only across time. Where the field thins.</td><td>§12.4 tracking · §12.5 events · §12.9 re-ID</td></tr><tr><td><strong>L3</strong></td><td><strong>Retrieval and forensics.</strong> Ask the footage a question in words; get the clip and the reasoning back.</td><td>§12.10 retrieval · §12.12 forensic summary</td></tr></tbody></table></div>
+<p>Level definitions are <strong>inferred, not quoted</strong>. The first operational act at the event is to read the real definitions and re-plan if they differ (§19.3).</p>
+<h4 id="1-2-the-physical-constraint-that-dictates-the-architecture">1.2 The physical constraint that dictates the architecture</h4>
+<p>A 3B-parameter VLM costs roughly <strong>1–3 s per frame</strong> on a single mid-range GPU. Ten minutes of 30 fps video is <strong>18,000 frames</strong>.</p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>18,000 frames × 2 s/frame ≈ 10 GPU-hours   to watch 10 minutes of video</code></pre></div>
+<p><span class="chip chip-derived">DERIVED</span>. This is not a tuning problem, it is three orders of magnitude. <strong>A one-model answer to the brief is "no."</strong> So the answer is not a model, it is a <em>shape</em>: a cheap always-on cascade that reduces 18,000 frames to a handful of candidate windows and spends the VLM only there — where its actual strength is the thing being asked for, namely judging whether a flagged thing is genuinely unusual and saying why in words.</p>
+<p><strong>The cascade sentence — the single claim this system exists to support:</strong></p>
+<blockquote><p><em>A small VLM cannot watch every frame, so it is the judge at the end of a cheap cascade — eight calls instead of eighteen thousand.</em></p></blockquote>
+<p>The corollary is that <strong>two models is the floor, because the brief's question has a floor.</strong> A cheap gate in front of the VLM is not architectural decoration; it <em>is</em> the finding.</p>
+<h4 id="1-3-the-governing-decision-train-fit-or-prompt">1.3 The governing decision: train, fit, or prompt</h4>
+<p>The footage arrives at the event. Anything trained beforehand on another city's data learns a different city, altitude, camera and lighting — and <strong>"normal" is precisely what will not transfer.</strong> What <em>does</em> transfer is viewpoint and scale. Every capability is therefore sorted into exactly one of three buckets, and that sort <em>is</em> the architecture:</p>
+<div class="tablewrap"><table><thead><tr><th>Bucket</th><th>Mechanism</th><th>Cost</th><th>What goes here</th><th>When</th></tr></thead><tbody><tr><td><strong>Train</strong></td><td>Gradient descent</td><td>~9 h GPU, offline</td><td>Aerial small-object detection (VisDrone + 40% synthetic night twins) — domain-general, survives the change of city</td><td>Before arrival</td></tr><tr><td><strong>Fit</strong></td><td>Arithmetic — mean, std, percentile, cosine</td><td><strong>&lt; 5 min</strong>, on their video</td><td>Per-class speed baseline · density baseline · normal-bank embeddings · zone polygons · thresholds</td><td>At the event, on unseen footage</td></tr><tr><td><strong>Prompt</strong></td><td>Text</td><td>Seconds</td><td>Open-vocabulary class list · VLM judge prompt and its JSON schema</td><td>Live, while being watched</td></tr></tbody></table></div>
+<p>Two hard rules follow:</p>
+<ul>
+<li><strong>DR-1 — Never fine-tune the VLM.</strong> No labels, no measurable gain, and it competes for the same GPU as the detector run. LoRA/PEFT is the most tempting wrong move available here. <strong>The brief asks an architectural question, not a leaderboard one.</strong> Prompt the judge; do not retrain it.</li>
+<li><strong>DR-2 — Never train an anomaly model on another city's normality.</strong> Scene-specific baselines are <em>fitted</em>, and fitting is arithmetic, not gradient descent.</li>
+</ul>
+<h4 id="1-4-what-production-grade-means-here">1.4 What "production grade" means here</h4>
+<p>This is a 22-hour build that must survive a public demo on borrowed wifi in front of people who will ask what happens when a knob moves. "Production grade" is therefore defined operationally:</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Operational definition used throughout this document</th></tr></thead><tbody><tr><td><strong>Fast</strong></td><td>Sustained end-to-end throughput ≥ the source rate at the configured sampling; <strong>latency-to-first-alert</strong> bounded and measured, because a system that alerts only after the file ends is not real-time whatever its throughput</td></tr><tr><td><strong>Accurate</strong></td><td>Day and night reported <em>separately</em>; FP/hour and time-to-detection reported beside AUC; no metric printed that the label set cannot support</td></tr><tr><td><strong>Available</strong></td><td>Every optional model has a <code>none</code> backend; the pipeline completes with zero optional models, with the network off, and after any single stage fails</td></tr><tr><td><strong>Consistent</strong></td><td>One config surface, one override code path, deterministic decoding, explicit units at every boundary, and one alert per event rather than forty</td></tr><tr><td><strong>Auditable</strong></td><td>Every alert carries the measured numbers that justified it, so the VLM's sentence can be checked against arithmetic</td></tr></tbody></table></div>
+<h3 id="2-design-principles">2. Design principles</h3>
+<p>These are the invariants. Where a later section makes a choice, it makes it because of one of these, and says which.</p>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Principle</th><th>Consequence in the code</th></tr></thead><tbody><tr><td><strong>P1</strong></td><td><strong>Cheap gates before expensive judges.</strong> Each stage must be strictly cheaper per frame than the stage after it.</td><td>§4.4 reduction ladder; <code>events.candidate_floor</code> is the last gate before the VLM</td></tr><tr><td><strong>P2</strong></td><td><strong>Measure, don't assume.</strong> Scene-specific "normal" is measured on the scene, never hardcoded.</td><td><code>fit.py</code> → <code>out/scene_fit.json</code> → <code>events.detect_events</code></td></tr><tr><td><strong>P3</strong></td><td><strong>Refuse rather than fabricate.</strong> A missing score is <code>None</code>, never <code>0.0</code>. A refusal is a design output.</td><td>§11.4 — 17 enumerated refusal sites</td></tr><tr><td><strong>P4</strong></td><td><strong>Every stage reads a file and emits a file.</strong> Any stage can be run, inspected and debugged alone. That property is what makes a bad hour survivable.</td><td>§4.3; <code>scene_fit.json</code>, <code>normal_bank.npy</code>, <code>alerts.json</code></td></tr><tr><td><strong>P5</strong></td><td><strong>Text is the tuning surface.</strong> What counts as an anomaly must change without training.</td><td><code>open_vocab.prompts</code>, <code>vlm_judge.PROMPT</code></td></tr><tr><td><strong>P6</strong></td><td><strong>One knob, one place.</strong> Every parameter in <code>config.yaml</code>; presets and CLI overrides share one code path.</td><td>§6 — <code>PRESETS</code> are <code>--set</code> strings, not a parallel mechanism</td></tr><tr><td><strong>P7</strong></td><td><strong>Explain with numbers, not adjectives.</strong> Each alert carries the arithmetic that produced it.</td><td><code>CandidateEvent.facts</code> reaches the VLM prompt <em>and</em> the operator UI</td></tr><tr><td><strong>P8</strong></td><td><strong>Name the limitation.</strong> A stated degradation beats an average that hides it.</td><td>Day/night split; §12.5 altitude caveat; §17.2 gap table; §18 risks</td></tr></tbody></table></div>
+<h3 id="3-requirements">3. Requirements</h3>
+<h4 id="3-1-functional-requirements">3.1 Functional requirements</h4>
+<p>Priority: <strong>M</strong> = must (the demo fails without it) · <strong>S</strong> = should · <strong>C</strong> = could (drop first).</p>
+<div class="tablewrap"><table><thead><tr><th>ID</th><th>Requirement</th><th>Pri</th><th>Acceptance criterion</th><th>Design ref</th></tr></thead><tbody><tr><td><strong>FR-01</strong></td><td>Ingest long-form video (hours, not clips) from file or stream and temporally subsample to a configured target rate.</td><td>M</td><td>A 2-hour file processes without unbounded memory growth; <code>video.target_fps</code> changes cost proportionally.</td><td>§12.4, §12.16</td></tr><tr><td><strong>FR-02</strong></td><td>Detect a restricted, configurable class set per sampled frame and associate detections into tracklets with stable IDs.</td><td>M</td><td><code>[1-2]</code> reports <em>N</em> tracklets over <em>M</em> sampled frames at an effective fps.</td><td>§12.4</td></tr><tr><td><strong>FR-03</strong></td><td>Fit scene-specific baselines on unseen footage in under 5 minutes <strong>without training</strong>: per-class speed statistics, object-density statistics, and a normal-frame embedding bank.</td><td>M</td><td><code>fit.py --video theirs.mp4</code> writes <code>scene_fit.json</code> + <code>normal_bank.npy</code> and prints its wall time.</td><td>§12.3</td></tr><tr><td><strong>FR-04</strong></td><td>Emit candidate events by arithmetic over tracklets against fitted baselines: <strong>loiter</strong>, <strong>abandoned</strong>, <strong>speed_anomaly</strong>, <strong>zone_intrusion</strong>, <strong>density_anomaly</strong>.</td><td>M</td><td>Each kind appears in <code>alerts.json</code> on a clip containing it, carrying the numbers that justified it.</td><td>§12.5, §13.1–13.4</td></tr><tr><td><strong>FR-05</strong></td><td>Detect objects the closed-set detector has no class for, on candidate windows only, using a text prompt list as the class list.</td><td>S</td><td>Changing <code>open_vocab.prompts</code> changes hits with no retraining.</td><td>§12.6</td></tr><tr><td><strong>FR-06</strong></td><td>Produce a zero-shot novelty score for a frame as its distance from the fitted normal bank.</td><td>S</td><td><code>novelty</code> appears in alert facts and can be given fusion weight.</td><td>§12.10, §13.6</td></tr><tr><td><strong>FR-07</strong></td><td>Adjudicate each candidate with a small VLM over a short frame strip, returning strictly parsed JSON <code>{anomalous, score, label, why}</code>.</td><td>M</td><td>Unparseable replies yield <code>score: None</code>, never a fabricated number.</td><td>§12.7</td></tr><tr><td><strong>FR-08</strong></td><td>Fuse geometric, VLM and novelty scores, then suppress duplicates by hysteresis and per-track cooldown.</td><td>M</td><td>One loiterer produces one alert; counts before/after suppression reported.</td><td>§12.8, §13.5</td></tr><tr><td><strong>FR-09</strong></td><td>Re-identify tracklets that are the same physical object across an occlusion gap.</td><td>S</td><td>One identity matched across a gap; both failure directions of the cosine threshold stateable.</td><td>§12.9, §13.7</td></tr><tr><td><strong>FR-10</strong></td><td>Answer a natural-language query over the footage with ranked timestamps.</td><td>S</td><td><code>python query.py "person carrying a bag near the gate"</code> returns the right clip.</td><td>§12.10</td></tr><tr><td><strong>FR-11</strong></td><td>Produce a forensic paragraph over all alerts in a window, citing timestamps, without inventing detail.</td><td>C</td><td>Every claim checkable against the facts passed in.</td><td>§12.12</td></tr><tr><td><strong>FR-12</strong></td><td>Evaluate against frame-level labels: ROC-AUC, P/R/F1 at a stated threshold, FP-frames, FP/hour, p50/p95 latency, time-to-detection, threshold sweep — <strong>day and night separately</strong>.</td><td>M</td><td>Two conditions, two tables, both reported even when night is worse.</td><td>§12.11, §15.3</td></tr><tr><td><strong>FR-13</strong></td><td>Present an operator surface: alert timeline, click-to-play evidence clip, the one-sentence "why", and the measured facts beside it.</td><td>M</td><td>Someone who has not seen it can say what the system found and why within 30 s.</td><td>§12.13</td></tr><tr><td><strong>FR-14</strong></td><td>Expose named operating presets (<code>day</code>, <code>night</code>, <code>fast</code>, <code>accurate</code>, <code>live</code>, <code>visdrone</code>) as one-line commands.</td><td>M</td><td>Each runs from a cold shell with one line, no YAML editing.</td><td>§6</td></tr><tr><td><strong>FR-15</strong></td><td>Handle night footage on purpose: contrast recovery before inference <strong>and</strong> a separate, lower detection confidence.</td><td>M</td><td>Detection counts recorded four ways: day/night × before/after the night path.</td><td>§12.4, §13.8</td></tr><tr><td><strong>FR-16</strong></td><td>Every emitted alert carries the measured facts that justified it.</td><td>M</td><td><code>facts</code> non-empty for every alert and rendered in the UI.</td><td>§11.2</td></tr><tr><td><strong>FR-17</strong></td><td>Explicit refusal semantics: insufficient data yields <em>no claim</em>, not a zero.</td><td>M</td><td>The §11.4 table holds at every listed call site.</td><td>§11.4</td></tr><tr><td><strong>FR-18</strong></td><td>Operate fully offline at run time — no network fetch during a run.</td><td>M</td><td>A full run with the network disabled completes.</td><td>§7.3</td></tr><tr><td><strong>FR-19</strong></td><td><strong>Emit alerts during the pass, not after it.</strong> Latency-to-alert is the "real time" question.</td><td>M</td><td><code>--preset live</code> prints alerts as found and reports the wall time of the first one.</td><td>§12.16</td></tr><tr><td><strong>FR-20</strong></td><td>Bound memory over hours of footage.</td><td>M</td><td>Tracklets idle beyond <code>stream.retire_after</code> are dropped; live tracklet count reported at end.</td><td>§12.16</td></tr><tr><td><strong>FR-21</strong></td><td>Define restricted zones without hand-typing pixel coordinates.</td><td>S</td><td><code>zones.py</code> writes clicked polygons straight into <code>config.yaml</code>.</td><td>§12.14</td></tr></tbody></table></div>
+<h4 id="3-2-non-functional-requirements">3.2 Non-functional requirements</h4>
+<p>Grouped by the four quality goals. §15 defines the measurement for each.</p>
+<h5 id="3-2-1-fast-latency-and-throughput">3.2.1 Fast — latency and throughput</h5>
+<div class="tablewrap"><table><thead><tr><th>ID</th><th>Requirement</th><th>Target</th><th>How measured</th><th>Status</th></tr></thead><tbody><tr><td><strong>NFR-F1</strong></td><td>End-to-end sustained throughput, whole pipeline, single T4/P100</td><td>≥ 1× realtime at <code>target_fps=3</code> (≥ 3 sampled fps ⇒ 30 fps source consumed in real time)</td><td><code>run.py</code> <code>[7]</code> line</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F2</strong></td><td>Per-event adjudication latency (frame extraction + VLM + fusion)</td><td>p50 ≤ 3 s, p95 ≤ 8 s</td><td><code>alerts.json.vlm_latency_ms</code> → <code>evaluate.report</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F3</strong></td><td><strong>Latency to first alert</strong> in streaming mode</td><td>≤ <code>stream.window_seconds</code> + adjudication latency, and <strong>strictly less than total run wall time</strong></td><td><code>run.py</code> <code>[5b]</code> line</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F4</strong></td><td>Cold-start scene adaptation on unseen footage</td><td>≤ 300 s wall for 120 s of fit footage</td><td><code>scene_fit.json.wall_seconds</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F5</strong></td><td>VLM invocation rate as a fraction of sampled frames</td><td>≤ 1.0% (design point ≈ 0.44%)</td><td><code>len(vlm_latency_ms) / n_frames</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F6</strong></td><td>Detector-only sustained throughput, TensorRT FP16 @ imgsz 1280</td><td>≥ 60 fps</td><td><code>scripts/export_engine.py</code> bench line</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F7</strong></td><td>Memory must be bounded, not proportional to footage length</td><td>Live tracklet count stabilises; retirement observed in the <code>[5]</code> line</td><td>Long-clip streaming run</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F8</strong></td><td>Tracklet post-processing must not be superlinear in track length</td><td><code>dwell_seconds</code> is O(n) per tracklet</td><td>§13.1 complexity argument + timing on a 10 k-point track</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-F9</strong></td><td>The VLM must never be re-paid for an event already judged</td><td><code>(track_id, kind)</code> memoised across windows</td><td><code>[5]</code> line: events judged ≤ candidates seen</td><td>Implemented</td></tr></tbody></table></div>
+<p><strong>Latency budget</strong> (<span class="chip chip-derived">DERIVED</span>, 10 min of 30 fps source at <code>target_fps=3</code>):</p>
+<div class="tablewrap"><table><thead><tr><th>Stage</th><th>Work</th><th>Share of wall</th></tr></thead><tbody><tr><td>Sample + detect + track</td><td>1,800 frames × detector</td><td>~60%</td></tr><tr><td>Event arithmetic</td><td>~40 tracklets, pure numpy</td><td>&lt; 1%</td></tr><tr><td>Open-vocab</td><td>8 windows × 3 frames = 24 detector calls</td><td>~3%</td></tr><tr><td>Novelty</td><td>8 frames × SigLIP</td><td>~2%</td></tr><tr><td>VLM judge</td><td>8 calls × 6 frames</td><td>~30%</td></tr><tr><td>Fuse + suppress + write</td><td>negligible</td><td>&lt; 1%</td></tr></tbody></table></div>
+<p>The distribution is the point: <strong>the VLM is ~30% of the cost while doing 100% of the reasoning.</strong> Invert the cascade and it becomes 99.9%.</p>
+<h5 id="3-2-2-accurate-detection-quality">3.2.2 Accurate — detection quality</h5>
+<div class="tablewrap"><table><thead><tr><th>ID</th><th>Requirement</th><th>Target</th><th>How measured</th><th>Status</th></tr></thead><tbody><tr><td><strong>NFR-A1</strong></td><td>Frame-level ROC-AUC, day</td><td>≥ 0.80 on CUHK Avenue</td><td><code>eval_run.py --tag day</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A2</strong></td><td>Frame-level ROC-AUC, night</td><td>≥ 0.85 × day AUC — a bound on <em>degradation</em>, reported separately, <strong>never averaged with day</strong></td><td><code>eval_run.py --tag night</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A3</strong></td><td>False positives at the operating threshold</td><td>≤ 10 FP/hour</td><td><code>evaluate.report.fp_per_hour</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A4</strong></td><td>Time-to-detection from anomaly onset</td><td>p50 ≤ 5 s; a miss reported as a miss, never as 0 s</td><td><code>eval_run.time_to_detection</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A5</strong></td><td>Detector quality vs stock weights</td><td>Fine-tune retained only if it wins on measured mAP50-95, day <em>and</em> night; otherwise stock is kept and the loss is reported</td><td><code>scripts/ab_weights.py</code> verdict lines</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A6</strong></td><td>Small-object recall on aerial footage</td><td>Tiling recall delta quantified before being claimed</td><td><code>scripts/sahi_recall.py</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A7</strong></td><td>No metric may be emitted that the labels cannot support</td><td>Single-class label sets produce a refusal, not an AUC</td><td><code>evaluate.report</code> / <code>sweep</code></td><td>Implemented</td></tr><tr><td><strong>NFR-A8</strong></td><td>No fabricated sub-score may enter fusion</td><td>A <code>None</code> sub-score is dropped from the weighted mean and the mode is labelled <code>geometric_only</code></td><td><code>fuse.fuse_score</code></td><td>Implemented</td></tr><tr><td><strong>NFR-A9</strong></td><td>Evaluation splits must not leak</td><td>Split by video, never by frame; <code>x.jpg</code> and <code>x_night.jpg</code> on the same side</td><td>Split manifest review</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-A10</strong></td><td>Night mAP must be reported on a night-only split, not inferred</td><td>A dedicated night val YAML exists</td><td><code>scripts/make_night_yaml.py</code></td><td>Implemented</td></tr></tbody></table></div>
+<h5 id="3-2-3-available-keeps-working-degrades-knowingly">3.2.3 Available — keeps working, degrades knowingly</h5>
+<div class="tablewrap"><table><thead><tr><th>ID</th><th>Requirement</th><th>Target</th><th>How measured</th><th>Status</th></tr></thead><tbody><tr><td><strong>NFR-V1</strong></td><td>Every model-bearing stage has a no-op backend</td><td><code>vlm.backend=none</code>, <code>open_vocab.backend=none</code>, <code>reid.backend=none</code> all complete a run</td><td><code>--preset fast</code></td><td>Implemented</td></tr><tr><td><strong>NFR-V2</strong></td><td>Zero-optional-model operation</td><td>Full run completes on CPU with no VLM, no open-vocab, no re-ID, no bank</td><td><code>python run.py --preset fast</code></td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-V3</strong></td><td>Offline operation</td><td>A complete run with the network disabled</td><td>Final dry run, wifi off</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td><strong>NFR-V4</strong></td><td>Single-stage failure containment</td><td>An exception in the open-vocab, novelty or VLM stage degrades that event to <code>geometric_only</code>; the run completes</td><td>Fault injection (§15.1)</td><td><strong>Gap G-A</strong></td></tr><tr><td><strong>NFR-V5</strong></td><td>Stage isolation / restartability</td><td>Each stage reads a file and emits a file; any consumer rerunnable alone off a saved artifact</td><td>Rerun <code>demo.py</code>, <code>eval_run.py</code>, <code>forensic.py</code>, <code>query.py</code> off one <code>alerts.json</code></td><td>Implemented</td></tr><tr><td><strong>NFR-V6</strong></td><td>Session-loss survival (training)</td><td>An interrupted fine-tune leaves a usable checkpoint; <code>--resume</code> restarts it</td><td><code>save_period=5</code>, <code>last.pt</code>, <code>--resume</code></td><td>Implemented</td></tr><tr><td><strong>NFR-V7</strong></td><td>Graceful hardware fallback</td><td><code>half=True</code> auto-disabled without CUDA; 4-bit skipped without CUDA rather than crashing deeper in</td><td><code>_resolve_half</code>, <code>_quant_config</code></td><td>Implemented</td></tr><tr><td><strong>NFR-V8</strong></td><td>Cold-start with no fit artifact</td><td>Missing <code>scene_fit.json</code> falls back to per-video statistics <strong>and says so</strong></td><td><code>run.py</code> <code>[0]</code> line</td><td>Implemented</td></tr><tr><td><strong>NFR-V9</strong></td><td>No in-memory-only results</td><td>Everything persisted to <code>alerts.json</code> at run end</td><td>File inspection</td><td>Implemented</td></tr></tbody></table></div>
+<h5 id="3-2-4-consistent-same-input-same-answer-stable-alerts">3.2.4 Consistent — same input, same answer; stable alerts</h5>
+<div class="tablewrap"><table><thead><tr><th>ID</th><th>Requirement</th><th>Target</th><th>How measured</th><th>Status</th></tr></thead><tbody><tr><td><strong>NFR-C1</strong></td><td>Decode determinism</td><td><code>vlm.temperature=0</code> ⇒ <code>do_sample=False</code>; models in <code>.eval()</code>; two runs on identical input+config give identical verdicts</td><td>Repeat-run diff of <code>alerts.json</code> excluding timing fields</td><td>Implemented</td></tr><tr><td><strong>NFR-C2</strong></td><td>Single configuration surface</td><td>Every knob in <code>config.yaml</code>; presets are <code>--set</code> strings through <code>apply_overrides</code>, so a preset cannot drift from an override</td><td>Code inspection: one code path</td><td>Implemented</td></tr><tr><td><strong>NFR-C3</strong></td><td>Override precedence total and stated</td><td><code>config.yaml</code> &lt; <code>--preset</code> &lt; <code>--set</code>, applied in that order</td><td>§6</td><td>Implemented</td></tr><tr><td><strong>NFR-C4</strong></td><td>Unit discipline at every boundary</td><td>Sampled-time seconds, source-frame numbers and pixels never mixed; <code>src_fps</code> recorded in <code>scene_fit.json</code> and read back by retrieval</td><td>§11.5</td><td>Implemented</td></tr><tr><td><strong>NFR-C5</strong></td><td>Alert stability</td><td>One physical event ⇒ one alert, via EMA + raise/clear hysteresis + per-track cooldown</td><td>Alert count before/after suppression</td><td>Implemented</td></tr><tr><td><strong>NFR-C6</strong></td><td>Encoder consistency between index build and query</td><td>Query embeddings encoded with exactly the encoder tag recorded in the bank metadata</td><td><code>retrieve._load_encoder(bank["encoder"])</code></td><td>Implemented</td></tr><tr><td><strong>NFR-C7</strong></td><td>Colour-space consistency</td><td>BGR→RGB applied exactly once per path, in <code>fit.py</code>, <code>vlm_judge.py</code> and <code>reid.py</code></td><td>§11.5, §15.2</td><td>Implemented</td></tr><tr><td><strong>NFR-C8</strong></td><td>Reproducible synthetic data and training</td><td>Night synthesis seeded; training seeded; labels copied verbatim because geometry is unchanged</td><td><code>make_night.py --seed</code>, <code>train_aerial.py --seed</code></td><td>Implemented</td></tr><tr><td><strong>NFR-C9</strong></td><td>Config provenance in every output</td><td>The full effective config embedded in <code>alerts.json</code>, so any result reproduces from its own artifact</td><td><code>alerts.json.config</code></td><td>Implemented</td></tr><tr><td><strong>NFR-C10</strong></td><td>Batch and streaming modes must agree</td><td>The two paths must apply the same event arithmetic, fusion and hysteresis semantics</td><td>Same-clip batch vs live alert-set comparison</td><td><strong>Gap G-B</strong></td></tr></tbody></table></div>
+<h4 id="3-3-explicitly-out-of-scope">3.3 Explicitly out of scope</h4>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>Why</th></tr></thead><tbody><tr><td>VLM fine-tuning / LoRA / PEFT</td><td>DR-1. No labels, no measurable gain, GPU contention.</td></tr><tr><td>Training an anomaly model on Avenue/UCF-Crime normality</td><td>DR-2. Normality does not transfer between cities.</td></tr><tr><td>Multi-camera fusion / cross-camera re-ID</td><td>Single-feed scope for the arena; §10 states the extension path.</td></tr><tr><td>Geo-registration / map grounding</td><td>Optional upgrade F7, one-of-three, drop-first.</td></tr><tr><td>Owner-association for abandoned objects</td><td>Not implemented; the event means "object stopped moving", and the demo says so (§12.5).</td></tr><tr><td>Pixel→metric calibration (px/s → m/s)</td><td>Requires altitude telemetry; §18 R-04 names the limitation instead of pretending.</td></tr><tr><td>Audio, thermal or radar modalities</td><td>Not supplied by the brief.</td></tr></tbody></table></div>
+<h4 id="3-4-constraints-and-assumptions">3.4 Constraints and assumptions</h4>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Constraint</th><th>Impact on design</th></tr></thead><tbody><tr><td><strong>CN-1</strong></td><td>No local GPU. All heavy execution on Kaggle (P100/T4), launched manually.</td><td>Local work is source-only; <strong>static review of the diff is the check</strong>, because a local run proves nothing.</td></tr><tr><td><strong>CN-2</strong></td><td>Kaggle sessions are ephemeral; GPU quota is weekly.</td><td>Anything to keep is written to <code>/kaggle/working/</code> and downloaded; runs are extrapolated before launch. §19.2</td></tr><tr><td><strong>CN-3</strong></td><td>Venue wifi shared by ~70 people.</td><td>Every weight local before arrival; the offline run (NFR-V3) is a gate, not a nicety.</td></tr><tr><td><strong>CN-4</strong></td><td>~22 working hours plus one unattended overnight GPU window.</td><td>The overnight fine-tune is the only schedule item that cannot slip.</td></tr><tr><td><strong>CN-5</strong></td><td>The event's own footage is unseen until the day.</td><td>All scene-specific parameters must be <em>fitted</em>, not trained (§1.3).</td></tr><tr><td><strong>AS-1</strong></td><td>Frame-level ground truth must be brought, not assumed supplied.</td><td>CUHK Avenue gates the metrics; <code>eval_run.py</code> takes a hand-built ranges file.</td></tr><tr><td><strong>AS-2</strong></td><td>The camera may be moving; altitude may change.</td><td>Pixel speed conflates object and platform motion — gated and named, not silently trusted. §18 R-04</td></tr></tbody></table></div>
+<hr/>
+<h2 class="part" id="part-ii-high-level-design">Part II — High-Level Design</h2>
+<h3 id="4-architecture">4. Architecture</h3>
+<h4 id="4-1-the-shape-a-reduction-cascade-with-a-reasoning-tail">4.1 The shape: a reduction cascade with a reasoning tail</h4>
+<figure class="diagram"><pre class="mermaid">flowchart TB
+    V["Video source&lt;br/&gt;hours, 30 fps"] --&gt; S["Stage 0 · Sample&lt;br/&gt;vid_stride = src_fps / target_fps"]
+    S --&gt; D["Stage 1 · Detect&lt;br/&gt;YOLO11s aerial, closed-set"]
+    D --&gt; T["Stage 2 · Track&lt;br/&gt;ByteTrack / BoT-SORT"]
+    T --&gt; R["Stage 2b · Re-ID&lt;br/&gt;OSNet, occlusion gaps"]
+    R --&gt; E["Stage 3 · Event arithmetic&lt;br/&gt;dwell · speed-z · zone · density"]
+
+    F["fit.py · scene fitting&lt;br/&gt;speed mean/std · density · normal bank"] -.-&gt;|baselines| E
+    F -.-&gt;|normal_bank.npy| N
+
+    E --&gt;|candidate_floor gate| OV["Stage 3b · Open-vocab&lt;br/&gt;YOLO-World, text = class list"]
+    E --&gt;|middle frame| N["Stage 3c · Novelty&lt;br/&gt;1 - top-k cosine to normal"]
+    OV --&gt; J["Stage 4 · VLM judge&lt;br/&gt;Qwen2.5-VL-3B, JSON out"]
+    N --&gt; J
+    J --&gt; FU["Stage 5 · Fuse + suppress&lt;br/&gt;weighted mean · EMA hysteresis · cooldown"]
+    FU --&gt; A["out/alerts.json"]
+    A --&gt; UI["demo.py · operator timeline"]
+    A --&gt; EV["eval_run.py · AUC · FP/hr · TTD"]
+    A --&gt; FO["forensic.py · window summary"]
+    F -.-&gt;|same index| Q["query.py · text retrieval"]</pre></figure>
+<p>Three properties of this diagram carry the whole design:</p>
+<ol>
+<li><strong>The gate before Stage 4.</strong> <code>events.candidate_floor</code> is the last cheap decision before the expensive one. Everything to its left is arithmetic or a small closed-set detector; everything to its right runs on ~8 windows.</li>
+<li><strong><code>fit.py</code> is off the hot path and feeds three consumers.</strong> One index — the SigLIP normal bank — serves <em>both</em> the zero-shot anomaly score (§13.6) and text retrieval (§12.10). One pass, two features, no extra model.</li>
+<li><strong>Nothing on the hot path is trained on the scene.</strong> The only trained artifact is the aerial detector, and it is domain-general by construction (§1.3).</li>
+</ol>
+<h4 id="4-2-two-execution-modes-over-one-cascade">4.2 Two execution modes over one cascade</h4>
+<p>The same stages run in two orders, selected by <code>stream.enabled</code> (<code>--preset live</code>).</p>
+<div class="tablewrap"><table><thead><tr><th></th><th><strong>Batch</strong> (default)</th><th><strong>Streaming</strong> (<code>--preset live</code>)</th></tr></thead><tbody><tr><td>Order</td><td>Track the <em>whole</em> file → events → judge → fuse → write</td><td>Per sampled frame: accumulate; every <code>window_seconds</code>: events → judge new → fuse → <strong>emit</strong></td></tr><tr><td>First alert</td><td>Only after the file ends</td><td>Within one window + adjudication latency</td></tr><tr><td>Memory</td><td><code>tracks</code> grows with footage length</td><td>Bounded by <code>retire_after</code> retirement</td></tr><tr><td>Re-ID, open-vocab</td><td>Available</td><td>Not wired into the window loop (§17.2 G-C)</td></tr><tr><td>Use</td><td>Evaluation, A/B, reproducible metrics</td><td>The "in real time" claim; long-form footage</td></tr></tbody></table></div>
+<p><strong>Why both exist rather than only streaming.</strong> Batch is the mode in which metrics are reproducible and comparable — every candidate is scored against the complete tracklet set. Streaming is the mode that answers the brief's <em>real-time</em> clause, and it prints <code>[5b] first alert at Xs wall - batch mode could not have alerted before Ys</code>, which turns the architectural claim into a measured number. On the brief's own footage — <em>"long-form CCTV and drone video, hours not clips"</em> — a batch-only system means <strong>zero alerts until the video ends</strong>, and that is a design defect, not a configuration choice.</p>
+<h4 id="4-3-module-inventory-reads-emits-consumed-by">4.3 Module inventory — reads, emits, consumed by</h4>
+<p>Principle <strong>P4</strong>: every stage reads a file and emits a file.</p>
+<div class="tablewrap"><table><thead><tr><th>Module</th><th>Reads</th><th>Emits</th><th>Consumed by</th><th>LOC</th></tr></thead><tbody><tr><td><code>fit.py</code></td><td>their video, <code>config.yaml</code></td><td><code>out/scene_fit.json</code>, <code>out/normal_bank.npy</code></td><td>events, fusion, retrieval</td><td>153</td></tr><tr><td><code>pipeline/tracks.py</code></td><td>video, detector weights</td><td><code>{track_id: Tracklet}</code>, frame count, effective fps</td><td>events, re-ID, stream</td><td>196</td></tr><tr><td><code>pipeline/events.py</code></td><td>tracklets + fitted baselines</td><td><code>CandidateEvent</code> with the facts that justified it</td><td>open-vocab, judge, stream</td><td>166</td></tr><tr><td><code>pipeline/openvocab.py</code></td><td>candidate windows, prompt list</td><td>boxes for classes COCO lacks</td><td>judge (via <code>facts</code>)</td><td>63</td></tr><tr><td><code>pipeline/retrieve.py</code></td><td><code>normal_bank.npy</code>, text query or frame</td><td>ranked frames / novelty score</td><td>fusion, <code>query.py</code></td><td>107</td></tr><tr><td><code>pipeline/reid.py</code></td><td>tracklet crops</td><td>appearance embeddings + identity links</td><td>events, UI</td><td>127</td></tr><tr><td><code>pipeline/vlm_judge.py</code></td><td>candidate + frame strip</td><td><code>{anomalous, score, label, why}</code></td><td>fusion</td><td>200</td></tr><tr><td><code>pipeline/fuse.py</code></td><td>geometric + VLM + novelty scores</td><td>alerts, after hysteresis and cooldown</td><td>UI, evaluation</td><td>74</td></tr><tr><td><code>pipeline/stream.py</code></td><td>live tracklets, judge</td><td>alerts <strong>during</strong> the pass</td><td>operator console, <code>alerts.json</code></td><td>145</td></tr><tr><td><code>pipeline/evaluate.py</code></td><td>alerts + labels</td><td>AUC, P/R/F1, FP/hour, latency percentiles</td><td>slides</td><td>49</td></tr><tr><td><code>run.py</code></td><td>everything above</td><td><code>out/alerts.json</code> + a console table</td><td>the operator, at 09:20 Saturday</td><td>219</td></tr><tr><td><code>demo.py</code></td><td><code>alerts.json</code></td><td>static self-contained <code>out/demo.html</code></td><td>judges</td><td>79</td></tr><tr><td><code>eval_run.py</code></td><td><code>alerts.json</code> + label ranges</td><td>metrics tables, sweep, time-to-detection</td><td>slides</td><td>72</td></tr><tr><td><code>query.py</code></td><td>text query + bank</td><td>ranked timestamps</td><td>L3 demo</td><td>32</td></tr><tr><td><code>forensic.py</code></td><td><code>alerts.json</code></td><td>one paragraph citing timestamps</td><td>L3 demo</td><td>41</td></tr><tr><td><code>zones.py</code></td><td>a still frame + clicks</td><td><code>events.restricted_zones</code> written into <code>config.yaml</code></td><td>events</td><td>95</td></tr><tr><td><code>train/make_night.py</code></td><td>daylight training set</td><td><code>*_night.*</code> images + copied labels</td><td>fine-tune</td><td>62</td></tr><tr><td><code>train/train_aerial.py</code></td><td>VisDrone (+ night twins)</td><td><code>weights/&lt;name&gt;/weights/best.pt</code></td><td>detector</td><td>75</td></tr><tr><td><code>scripts/ab_weights.py</code></td><td>tuned + stock weights</td><td>mAP table + verdict</td><td>NFR-A5</td><td>51</td></tr><tr><td><code>scripts/make_night_yaml.py</code></td><td>night image dir</td><td>night-only val YAML</td><td>NFR-A10</td><td>54</td></tr><tr><td><code>scripts/export_engine.py</code></td><td>weights</td><td>TensorRT engine + sustained fps</td><td>NFR-F6</td><td>55</td></tr><tr><td><code>scripts/sahi_recall.py</code></td><td>weights, video</td><td>recall delta from tiling</td><td>NFR-A6</td><td>81</td></tr></tbody></table></div>
+<h4 id="4-4-the-reduction-ladder-where-the-cost-goes">4.4 The reduction ladder — where the cost goes</h4>
+<p><span class="chip chip-derived">DERIVED</span> for 10 minutes of 30 fps footage at <code>target_fps=3</code>:</p>
+<div class="tablewrap"><table><thead><tr><th>Stage</th><th>Mechanism</th><th>In</th><th>Out</th><th>Reduction</th></tr></thead><tbody><tr><td>Source</td><td>—</td><td>18,000 frames</td><td>—</td><td>—</td></tr><tr><td>Frame sampling</td><td><code>vid_stride = 10</code></td><td>18,000</td><td>1,800 frames</td><td><strong>10x</strong></td></tr><tr><td>Detect + track</td><td>YOLO11s aerial + ByteTrack, always on</td><td>1,800 frames</td><td>~40 tracklets</td><td><strong>45x</strong></td></tr><tr><td>Event arithmetic</td><td>dwell · speed-z · zone · density vs fitted baselines</td><td>~40 tracklets</td><td>~8 candidates</td><td><strong>5x</strong></td></tr><tr><td>Open-vocab</td><td>YOLO-World on candidate windows only</td><td>8 windows</td><td>24 frames</td><td>—</td></tr><tr><td>VLM judge</td><td>Qwen2.5-VL-3B, 6-frame strip, JSON out</td><td>8 candidates</td><td>8 calls</td><td>—</td></tr><tr><td>Fuse + suppress</td><td>hysteresis + cooldown</td><td>8 verdicts</td><td>~3 alerts</td><td><strong>2.7x</strong></td></tr></tbody></table></div>
+<p><strong>8 VLM calls instead of 18,000 — roughly 2,000x fewer</strong>, sampling 48 images, or <strong>0.27% of the footage.</strong> A parallel SigLIP pass over the same frames is simultaneously the normal-bank anomaly score and the retrieval index.</p>
+<h4 id="4-5-model-inventory-sorted-by-what-it-actually-costs">4.5 Model inventory — sorted by what it actually costs</h4>
+<p>Two models do the work. Three more are level-gated add-ons. Four rows commonly listed as "components" are not models at all.</p>
+<p><strong>Core — these two answer the brief on their own (~2.6 GB on disk):</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Size</th><th>Does what nothing else can</th><th>Fallback</th></tr></thead><tbody><tr><td><strong>YOLO-World-L</strong></td><td>~90 MB</td><td>Detection <em>and</em> open-vocabulary: text is the class list. Nothing else can name a thing it was never trained on — which is what "anomaly" means.</td><td>Grounding DINO Swin-T (not implemented)</td></tr><tr><td><strong>Qwen2.5-VL-3B-Instruct</strong> (4-bit)</td><td>~2.5 GB</td><td>The judgement, and the sentence explaining it. Literally the "small VLM" of the problem statement.</td><td>SmolVLM2-2.2B (implemented)</td></tr></tbody></table></div>
+<p><strong>Level-gated — added when its level arrives:</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Size</th><th>What it buys</th><th>Added at</th></tr></thead><tbody><tr><td>VisDrone-pretrained YOLO + our night fine-tune</td><td>~19 MB</td><td>A fast closed-set pass so YOLO-World only fires on candidates. A <em>speed</em> optimisation, not a capability — it is what makes the FPS number real.</td><td>F3</td></tr><tr><td>SigLIP ViT-B-16 (webli)</td><td>~800 MB</td><td>One index serving the normal-bank anomaly score <em>and</em> text retrieval — dual use</td><td>F2</td></tr><tr><td>OSNet-x1.0 (torchreid)</td><td>~9 MB</td><td>Re-ID across occlusion gaps. <strong>Only if needed</strong> — check BoT-SORT's own re-ID first.</td><td>F1</td></tr><tr><td>SAM 2.1 hiera-small</td><td>~180 MB</td><td>Masks that propagate through video themselves. Strictly optional.</td><td>F7</td></tr></tbody></table></div>
+<p><strong>Not models — no weights, no download, no disk:</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Row</th><th>What it actually is</th></tr></thead><tbody><tr><td>SAHI tiling (640 @ 0.2)</td><td>A slicing technique wrapping the detector already loaded. <strong>A 15 px top-down person survives tiling and dies in a 640 resize.</strong></td></tr><tr><td>BoT-SORT / ByteTrack</td><td>Tracking algorithms — Kalman filter plus Hungarian matching over boxes. Config, not weights.</td></tr><tr><td>CLAHE + separate night <code>conf</code></td><td>An OpenCV histogram function, about five lines. Recovers contrast <em>before</em> inference instead of hoping the detector generalises.</td></tr><tr><td>TensorRT export</td><td>A compiler that re-exports the detector already held. One line.</td></tr></tbody></table></div>
+<p><strong>On chasing versions.</strong> <code>pip install -U ultralytics</code> and use the newest checkpoint — the API is identical, so it is a one-string change. But do not spend time there: a version bump buys a couple of mAP points, while <code>imgsz=1280</code> plus tiling buys far more on aerial footage. <strong>YOLO-World rides a YOLOv8 backbone regardless, so a newer YOLO is not a newer open-vocabulary model.</strong></p>
+<h4 id="4-6-sequence-of-a-batch-run">4.6 Sequence of a batch run</h4>
+<figure class="diagram"><pre class="mermaid">sequenceDiagram
+    participant Op as Operator
+    participant Run as run.py
+    participant Fit as scene_fit.json
+    participant Trk as tracks.py
+    participant Ev as events.py
+    participant OV as openvocab.py
+    participant Nov as retrieve.py
+    participant VLM as vlm_judge.py
+    participant Fu as fuse.py
+
+    Op-&gt;&gt;Run: run.py --video theirs.mp4 --preset night
+    Run-&gt;&gt;Run: load config, apply preset, apply --set
+    Run-&gt;&gt;Fit: read out/scene_fit.json (if present)   [0]
+    Fit--&gt;&gt;Run: speed_by_class, density
+    Note over Run: the fit loads BEFORE tracking so streaming&lt;br/&gt;mode has baselines from the first window
+    Run-&gt;&gt;Trk: run_tracking(cfg)
+    Trk--&gt;&gt;Run: tracks, n_frames, eff_fps             [1-2]
+    opt reid.backend != none
+        Run-&gt;&gt;Run: link_identities, identity or -1    [2b]
+    end
+    Run-&gt;&gt;Ev: detect_events(tracks, cfg, speed, density)
+    Ev--&gt;&gt;Run: candidates above candidate_floor       [3]
+    opt open_vocab.backend != none
+        Run-&gt;&gt;OV: detect(video, ev) per candidate     [3b]
+        OV--&gt;&gt;Run: hits into ev.facts
+    end
+    loop per candidate
+        opt w_novelty &gt; 0 and bank exists
+            Run-&gt;&gt;Nov: score_frame_novelty(middle frame)
+            Nov--&gt;&gt;Run: novelty into ev.facts
+        end
+        Run-&gt;&gt;VLM: judge(ev, frame strip)
+        VLM--&gt;&gt;Run: anomalous, score, label, why      [4]
+        Run-&gt;&gt;Fu: fuse_score(ev, verdict, cfg)
+    end
+    Run-&gt;&gt;Fu: suppress(scored, cfg)                   [5]
+    Fu--&gt;&gt;Run: alerts
+    Run-&gt;&gt;Op: out/alerts.json + console table         [6][7]</pre></figure>
+<h3 id="5-deployment-view">5. Deployment view</h3>
+<p>Three environments with a deliberate division of labour. <strong>Nothing heavy runs where the code is written.</strong></p>
+<figure class="diagram"><pre class="mermaid">flowchart LR
+    subgraph DEV["Dev laptop · no GPU"]
+        SRC["source only&lt;br/&gt;edit · static review · ast.parse"]
+    end
+    subgraph KAG["Kaggle · P100/T4 · ephemeral"]
+        TR["make_night.py then train_aerial.py"]
+        AB["ab_weights.py · export_engine.py · sahi_recall.py"]
+        RUNK["fit.py · run.py · eval_run.py"]
+    end
+    subgraph ARENA["Arena laptop · Saturday · offline"]
+        W["local weights&lt;br/&gt;best.pt · Qwen 4-bit · SigLIP · OSNet"]
+        RUNA["zones.py, fit.py, run.py, demo.py"]
+    end
+    SRC --&gt;|git push| KAG
+    TR --&gt;|best.pt downloaded&lt;br/&gt;before session death| ARENA
+    KAG --&gt;|measured numbers to slides| ARENA</pre></figure>
+<div class="tablewrap"><table><thead><tr><th>Environment</th><th>Role</th><th>Hard rules</th></tr></thead><tbody><tr><td><strong>Dev laptop</strong></td><td>Source of truth for code. No GPU, no dataset.</td><td>Never <code>pip install</code>, train or infer here. A local run proves nothing, so <strong>static review of the diff is the check</strong>.</td></tr><tr><td><strong>Kaggle notebook</strong></td><td>The runtime. Training, A/B, export, evaluation.</td><td>Re-clone every session — uncommitted local edits do not exist there. <strong>Commit and push before starting a session.</strong> Everything to keep goes to <code>/kaggle/working/</code> and is downloaded before the session dies.</td></tr><tr><td><strong>Arena laptop</strong></td><td>The demo.</td><td>Every weight local before arrival (CN-3). The final rehearsal runs with the network disabled.</td></tr></tbody></table></div>
+<p><strong>Target production topology (beyond the arena).</strong> The same cascade maps onto an edge deployment without restructuring: the always-on left half (sample → detect → track → event arithmetic) runs on a Jetson-class device beside the camera at TensorRT FP16, and only candidate windows — already ~0.27% of the footage — cross the network to a GPU host running the VLM judge. The bandwidth argument is identical to the compute argument, and the cascade supplies both.</p>
+<h3 id="6-control-plane-configuration-and-operability">6. Control plane — configuration and operability</h3>
+<p><strong>P6: one knob, one place.</strong> <code>config.yaml</code> is the single source of every parameter, and there are exactly three layers applied in a fixed order:</p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>config.yaml   (defaults; every knob marked KNOB)
+    overridden by
+--preset  day | night | fast | accurate | live | visdrone   (as --set strings)
+    overridden by
+--set detector.imgsz=1280 vlm.backend=qwen         (dotted keys, yaml-parsed values)</code></pre></div>
+<p>Presets are deliberately <strong>not</strong> a parallel mechanism — they are lists of <code>k=v</code> strings pushed through the same <code>apply_overrides()</code> walk as <code>--set</code>, so a preset can never drift from what an override does (NFR-C2). <code>--set</code> is applied last, so an explicit override always wins.</p>
+<div class="tablewrap"><table><thead><tr><th>Preset</th><th>Overrides</th><th>Intent</th></tr></thead><tbody><tr><td><code>day</code></td><td><code>detector.conf=0.25</code>, <code>night.enabled=false</code>, <code>vlm.backend=qwen</code></td><td>Baseline daylight operation</td></tr><tr><td><code>night</code></td><td><code>detector.conf=0.20</code>, <code>night.enabled=true</code>, <code>night.conf=0.15</code>, <code>night.clahe=true</code>, <code>vlm.backend=qwen</code></td><td>Contrast recovery + a lower confidence floor</td></tr><tr><td><code>fast</code></td><td><code>video.target_fps=2</code>, <code>detector.imgsz=960</code>, <code>vlm.backend=none</code>, <code>open_vocab.backend=none</code></td><td>Geometry-only triage; CPU-viable; <strong>the availability floor</strong></td></tr><tr><td><code>accurate</code></td><td><code>video.target_fps=5</code>, <code>detector.imgsz=1280</code>, <code>vlm.backend=qwen</code>, <code>open_vocab.backend=yoloworld</code>, <code>vlm.frames_per_event=8</code></td><td>Maximum quality, cost accepted</td></tr><tr><td><code>live</code></td><td><code>stream.enabled=true</code>, <code>detector.conf=0.25</code>, <code>vlm.backend=qwen</code></td><td><strong>Alerts during the pass</strong> — the answer to "in real time"</td></tr><tr><td><code>visdrone</code></td><td><code>detector.weights=weights/aerial_night/weights/best.pt</code>, <code>detector.classes=[0..9]</code>, <code>events.person_classes=[0,1]</code></td><td>Switch to the fine-tuned checkpoint <strong>and its class semantics together</strong> — see the class-map hazard in §12.5</td></tr></tbody></table></div>
+<p>The operability requirement behind this (FR-14) is blunt: <strong>Saturday morning types commands, it does not edit code.</strong> <code>zones.py</code> exists for the same reason — the runbook allots three minutes to drawing zone polygons, and hand-typing pixel coordinates under time pressure is exactly the kind of thing that eats twenty minutes on the day.</p>
+<h3 id="7-availability-design">7. Availability design</h3>
+<h4 id="7-1-the-degradation-ladder">7.1 The degradation ladder</h4>
+<p>Availability here is not redundancy — there is one laptop. It is <em>graceful degradation with a stated floor</em>. Each rung removes a capability and keeps the system answering.</p>
+<div class="tablewrap"><table><thead><tr><th>Rung</th><th>Condition</th><th>What still works</th><th>What is lost</th><th>Score mode</th></tr></thead><tbody><tr><td>0</td><td>Everything present</td><td>Full cascade, novelty, re-ID, forensics, retrieval, streaming</td><td>—</td><td><code>fused</code></td></tr><tr><td>1</td><td><code>fuse.w_novelty=0</code> or no <code>normal_bank.npy</code></td><td>Geometry + open-vocab + VLM</td><td>Zero-shot novelty term</td><td><code>fused</code></td></tr><tr><td>2</td><td><code>reid.backend=none</code></td><td>Everything except identity linking</td><td>Cross-occlusion identity</td><td><code>fused</code></td></tr><tr><td>3</td><td><code>open_vocab.backend=none</code></td><td>Geometry + VLM</td><td>Naming unseen classes</td><td><code>fused</code></td></tr><tr><td>4</td><td><code>vlm.backend=none</code></td><td>Geometry, events, alerts, UI, evaluation</td><td>The judgement and the "why" sentence</td><td><strong><code>geometric_only</code></strong></td></tr><tr><td>5</td><td>No <code>scene_fit.json</code></td><td>Per-video statistics computed on the fly, announced in <code>[0]</code></td><td>Scene-fitted baselines; the 5-minute-adaptation claim; all density events</td><td><code>geometric_only</code></td></tr><tr><td>6</td><td>No CUDA</td><td>Full run on CPU: <code>half</code> auto-disabled, 4-bit skipped</td><td>Real-time throughput</td><td><code>geometric_only</code></td></tr></tbody></table></div>
+<p>Rung 4 is the load-bearing one. <code>NoopJudge.judge()</code> returns <code>anomalous: None, score: None, label: "not judged", why: "vlm.backend=none - geometric score only"</code>, and <code>fuse_score</code> detects the single-part case and returns the geometric score labelled <code>geometric_only</code> — <strong>never a silently zeroed VLM term</strong> (NFR-A8, P3).</p>
+<h4 id="7-2-failure-mode-and-effects-analysis">7.2 Failure-mode and effects analysis</h4>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Failure</th><th>Detection</th><th>Effect today</th><th>Mitigation</th><th>Status</th></tr></thead><tbody><tr><td>FM-1</td><td>VLM OOM on a large frame strip</td><td>CUDA OOM traceback</td><td><strong>Run aborts</strong></td><td>Per-event exception boundary to <code>geometric_only</code>; <code>max_pixels</code> and <code>frames_per_event</code> are the two levers</td><td><strong>Gap G-A</strong></td></tr><tr><td>FM-2</td><td>VLM returns prose, not JSON</td><td><code>_parse</code> finds no JSON object</td><td><code>score: None</code>, <code>label: "unparsed"</code>, raw text truncated into <code>why</code></td><td>Correct already — refusal, not a zero</td><td>Implemented</td></tr><tr><td>FM-3</td><td><code>bitsandbytes</code> absent or no CUDA</td><td>Import failure / <code>cuda.is_available()</code> false</td><td>Loads fp16 / CPU <strong>with a printed reason</strong> instead of crashing deeper in</td><td><code>_quant_config</code> returns <code>None</code> and says why</td><td>Implemented</td></tr><tr><td>FM-4</td><td><code>half=True</code> on CPU</td><td>Raises in several Ultralytics versions</td><td>Decided once, up front</td><td><code>_resolve_half</code></td><td>Implemented</td></tr><tr><td>FM-5</td><td>No <code>scene_fit.json</code></td><td><code>os.path.exists</code></td><td>Falls back to per-video stats, prints the fallback</td><td>Implemented</td><td>Implemented</td></tr><tr><td>FM-6</td><td>Density baseline unavailable (&lt;20 samples)</td><td><code>density is None</code></td><td><strong>No density events at all</strong> — no baseline, no claim</td><td>Deliberate refusal (P3)</td><td>Implemented</td></tr><tr><td>FM-7</td><td>Fewer than 20 speed samples for a class</td><td><code>_speed_stats</code> returns <code>(None, None)</code></td><td>No speed event for that class</td><td>Deliberate refusal</td><td>Implemented</td></tr><tr><td>FM-8</td><td>Tracklet shorter than <code>min_track_frames</code></td><td><code>tr.n() &lt; 6</code></td><td>Skipped entirely — a 2-frame blip gets no verdict</td><td>Deliberate refusal</td><td>Implemented</td></tr><tr><td>FM-9</td><td>Corrupt/unseekable frame in a window</td><td><code>cap.read()</code> returns False</td><td>That timestamp is skipped; the strip is shorter</td><td>Implemented</td><td>Implemented</td></tr><tr><td>FM-10</td><td>Memory growth over hours</td><td>Live tracklet count climbing</td><td>Streaming retires idle tracklets; batch does not</td><td><code>stream.retire_after</code>; use <code>--preset live</code> on long footage</td><td>Implemented (streaming)</td></tr><tr><td>FM-11</td><td>Kaggle session dies mid-training</td><td>Wall-clock overrun</td><td><code>save_period=5</code> plus <code>last.pt</code> plus <code>--resume</code></td><td>Epoch-1 extrapolation prevents the overrun</td><td>Implemented</td></tr><tr><td>FM-12</td><td>Weight download attempted at demo time</td><td>Network access on a wifi-off run</td><td>Fails visibly in rehearsal rather than on stage</td><td>NFR-V3 offline dry run</td><td><span class="chip chip-target">TARGET</span></td></tr><tr><td>FM-13</td><td>Fine-tuned detector loses to stock</td><td><code>ab_weights.py</code> verdict line</td><td>Stock kept, loss reported on the slide</td><td>NFR-A5 — <strong>a legitimate result, not a wasted night</strong></td><td>Implemented</td></tr><tr><td>FM-14</td><td>Re-ID merges two strangers</td><td>Identity count implausibly low</td><td><code>cosine_threshold</code> too low; class and temporal-overlap gates already block the impossible cases</td><td>§13.7</td><td>Implemented</td></tr><tr><td>FM-15</td><td>Tracker ID churn under occlusion</td><td>Identity count implausibly high</td><td><code>track_buffer</code> up; or BoT-SORT; or OSNet re-ID</td><td>§13.7</td><td>Implemented</td></tr><tr><td>FM-16</td><td>A re-appearing track id re-alerts instantly after retirement</td><td>Duplicate alerts for one object</td><td>Suppression state is <strong>deliberately not cleared</strong> when a tracklet retires</td><td><code>stream._retire</code></td><td>Implemented</td></tr></tbody></table></div>
+<h4 id="7-3-offline-guarantee">7.3 Offline guarantee</h4>
+<p>Three things reach for the network by default and must be pinned before the arena: Ultralytics weight auto-download, HuggingFace model resolution, and <code>open_clip</code> pretrained tags. The verification is not code review — it is <strong>a full run with the network disabled</strong>, the only way to prove nothing silently fetches. It is a scheduled gate (§19.3), not an afterthought.</p>
+<h3 id="8-consistency-design">8. Consistency design</h3>
+<p>Consistency has two distinct meanings here and both are requirements.</p>
+<h4 id="8-1-reproducibility-same-input-same-answer">8.1 Reproducibility — same input, same answer</h4>
+<div class="tablewrap"><table><thead><tr><th>Mechanism</th><th>Where</th><th>Guards against</th></tr></thead><tbody><tr><td><code>temperature=0</code> giving <code>do_sample=False</code></td><td><code>_HFVisionJudge._generate</code></td><td>A judge that changes its mind between runs is unusable</td></tr><tr><td><code>model.eval()</code> on every loaded model</td><td>judge, <code>fit.py</code>, <code>retrieve._load_encoder</code></td><td>BatchNorm/dropout drift moving embeddings between runs</td></tr><tr><td>Encoder tag round-trip</td><td><code>scene_fit.json.normal_bank.encoder</code> into <code>_load_encoder</code></td><td>Querying a SigLIP index with a CLIP text tower</td></tr><tr><td>Seeded synthesis and training</td><td><code>make_night.py --seed</code>, <code>train_aerial.py --seed</code></td><td>An unreproducible training set or run</td></tr><tr><td>Effective config embedded in output</td><td><code>alerts.json.config</code></td><td>A result that cannot be reproduced from its own artifact</td></tr><tr><td>Single override code path</td><td><code>apply_overrides</code> for both preset and <code>--set</code></td><td>Preset semantics drifting from CLI semantics</td></tr><tr><td>Union-find grouping in re-ID</td><td><code>reid.link_identities</code></td><td>Identity groups that depend on iteration order</td></tr></tbody></table></div>
+<p>Residual nondeterminism is stated rather than denied: GPU floating-point reduction order and cuDNN kernel selection can move a score in the last decimal place. Alert <em>decisions</em> are stable because thresholds are not knife-edge and hysteresis absorbs single-sample noise.</p>
+<h4 id="8-2-alert-stability-one-event-one-alert">8.2 Alert stability — one event, one alert</h4>
+<p>Without suppression, one loiterer standing in a doorway for four minutes generates an event per overlapping window — dozens of rows for one fact. That destroys operator trust and inflates FP/hour. Four mechanisms compose (§13.5):</p>
+<ol>
+<li><strong>EMA per track</strong> (<code>ema_alpha</code>) — a single noisy score cannot open an alert.</li>
+<li><strong>Raise/clear hysteresis</strong> (<code>raise_threshold</code> above <code>clear_threshold</code>) with a latched state — a track already raised does not re-alert until it has cleared low.</li>
+<li><strong>Minimum duration</strong> (<code>min_event_seconds</code>) — sub-second artefacts are not alerts.</li>
+<li><strong>Per-track cooldown</strong> (<code>cooldown_seconds</code>) — the hard backstop.</li>
+</ol>
+<p>In streaming mode all four persist <strong>across windows</strong>, and <code>(track_id, kind)</code> memoisation means the VLM is never re-paid for an event it has already judged (NFR-F9).</p>
+<h3 id="9-performance-design">9. Performance design</h3>
+<p>The performance strategy is entirely structural. There is no micro-optimisation in it.</p>
+<div class="tablewrap"><table><thead><tr><th>Lever</th><th>Mechanism</th><th>Effect</th><th>Cost</th></tr></thead><tbody><tr><td><strong>Temporal subsampling</strong></td><td><code>vid_stride = src_fps / target_fps</code></td><td>10x at <code>target_fps=3</code></td><td>Loses almost nothing for loitering; raise only for falls and collisions</td></tr><tr><td><strong>Cascade gating</strong></td><td><code>candidate_floor</code> before the VLM</td><td>~2,000x fewer VLM calls</td><td>Anything geometry misses never reaches the judge — recall responsibility sits in Stage 3</td></tr><tr><td><strong>Event memoisation</strong></td><td><code>(track_id, kind)</code> set in streaming</td><td>The VLM is never re-paid for a known event</td><td>Only the first occurrence of a kind per track is judged</td></tr><tr><td><strong>Quantisation</strong></td><td>Qwen 4-bit NF4, double-quant, bf16 compute</td><td>~7 GB to ~2.5 GB</td><td>Small quality cost; makes detector and VLM co-resident</td></tr><tr><td><strong><code>max_pixels</code></strong></td><td>Vision-tower token budget</td><td>Halve it, roughly halve VLM latency</td><td><strong>The single biggest latency lever</strong></td></tr><tr><td><strong><code>frames_per_event</code></strong></td><td>Strip length</td><td>4-8 is the band</td><td>Below 4 loses temporality; above 8 pays for nothing</td></tr><tr><td><strong>TensorRT FP16</strong></td><td>Detector re-export</td><td>Detector-side headroom</td><td>Export/verify step; the engine is tied to the GPU</td></tr><tr><td><strong>Capture reuse</strong></td><td>One <code>cv2.VideoCapture</code> for every frame read in the judging loop</td><td>Removes 2-3 open/seek/close cycles <strong>per event</strong></td><td>—</td></tr><tr><td><strong>O(n) dwell</strong></td><td>Monotonic-deque two-pointer instead of O(n²) centroid recompute</td><td>Minutes to milliseconds on a 10 k-point track</td><td>§13.1</td></tr><tr><td><strong>Encoder caching</strong></td><td><code>retrieve._CACHE</code> keyed by encoder tag, on GPU</td><td>Removes a full SigLIP load <strong>per event</strong></td><td>—</td></tr><tr><td><strong>Tracklet retirement</strong></td><td><code>stream.retire_after</code></td><td>Bounds memory over hours</td><td>Retired tracklets cannot gain new events</td></tr><tr><td><strong>Conditional stages</strong></td><td>Open-vocab loop and novelty import only when enabled</td><td>No no-op work</td><td>—</td></tr></tbody></table></div>
+<p>Five of these (capture reuse, O(n) dwell, encoder caching, event memoisation, retirement) are corrections to real quadratic, per-event-reload or unbounded-growth behaviour found by static review. They are listed here because the throughput target depends on them.</p>
+<h3 id="10-scaling-beyond-one-feed">10. Scaling beyond one feed</h3>
+<p>Not required by the arena; stated because it is the first question a deployment review asks.</p>
+<div class="tablewrap"><table><thead><tr><th>Dimension</th><th>Approach</th><th>Why it works with this shape</th></tr></thead><tbody><tr><td><strong>N cameras</strong></td><td>Shard by camera. One process per feed, each with its own <code>scene_fit.json</code>.</td><td>Scene fitting is per-scene by definition; there is no shared trained state to synchronise.</td></tr><tr><td><strong>GPU sharing</strong></td><td>The always-on left half is per-camera; the VLM judge becomes a shared queued service.</td><td>Only ~0.27% of frames need it — one judge serves many cameras.</td></tr><tr><td><strong>Backpressure</strong></td><td>Bounded candidate queue, shed by <code>geo_score</code> descending.</td><td>The geometric score is already a priority signal.</td></tr><tr><td><strong>Long-horizon retrieval</strong></td><td>The normal bank generalises to a per-camera vector index; <code>search()</code> is a dot product.</td><td>The index is built once per fit and is dual-use.</td></tr><tr><td><strong>Cross-camera identity</strong></td><td>OSNet embeddings already exist per tracklet; extend the union-find to a cross-camera gallery.</td><td>The temporal-overlap gate becomes a travel-time gate.</td></tr><tr><td><strong>Model updates</strong></td><td>The detector is the only trained component; swap <code>detector.weights</code> and re-run <code>ab_weights.py</code>.</td><td>One trained artifact, one A/B gate.</td></tr></tbody></table></div>
+<h4 id="security-and-privacy-posture">Security and privacy posture</h4>
+<div class="tablewrap"><table><thead><tr><th>Concern</th><th>Position</th></tr></thead><tbody><tr><td>Data egress</td><td>None at run time (NFR-V3). All inference local; the design is on-prem by construction.</td></tr><tr><td>Personal data</td><td>Crops are held in memory for embedding and discarded. <code>alerts.json</code> stores geometry and timestamps, not imagery; <code>demo.html</code> references the source video by relative path rather than embedding frames.</td></tr><tr><td>Re-ID scope</td><td>Identity IDs are per-run integers. No gallery, no enrolment, no cross-session linkage.</td></tr><tr><td>Retention</td><td>Governed by whoever holds the source video; the system adds only small JSON artifacts.</td></tr><tr><td>Model provenance</td><td>Any community checkpoint used as a training base must have its licence and its claimed training set verified, and must pass the A/B gate like everything else — <strong>a random community checkpoint can be worse than stock.</strong></td></tr></tbody></table></div>
+<hr/>
+<h2 class="part" id="part-iii-low-level-design">Part III — Low-Level Design</h2>
+<h3 id="11-data-contracts">11. Data contracts</h3>
+<h4 id="11-1-out-scene-fit-json-the-fitted-scene">11.1 <code>out/scene_fit.json</code> — the fitted scene</h4>
+<p>Written by <code>fit.py</code>. Read by <code>run.py</code> (baselines) and <code>retrieve.py</code> (bank metadata).</p>
+<div class="codewrap"><span class="codelang">jsonc</span><pre class="code"><code>{
+  "video": "data/theirs.mp4",           // string  - provenance
+  "sampled_frames": 360,                // int     - frames actually processed
+  "eff_fps": 3.0,                       // float   - src_fps / vid_stride
+  "fit_seconds_requested": 120.0,       // float   - the --fit-seconds budget
+  "fit_seconds_of_video": 120.0,        // float   - sampled_frames / eff_fps
+  "speed_by_class": {                   // map class-id(string) -&gt; stats | null
+    "0": { "mean": 41.2, "std": 18.7 }, //   px/s in SAMPLED time
+    "2": null                           //   null = refused, &lt;20 samples (P3)
+  },
+  "speed_refused_classes": ["2"],       // list    - explicit, not inferred
+  "density": {                          // objects per sampled frame, or null
+    "mean": 6.4, "std": 2.1, "p95": 11.0
+  },
+  "normal_bank": {                      // null when open_clip is unavailable
+    "encoder": "ViT-B-16-SigLIP/webli", //   MUST be reused verbatim at query time
+    "n": 200,                           //   rows in normal_bank.npy
+    "frame_idx": [0, 43, 91],           //   SOURCE frame numbers, not sampled
+    "src_fps": 29.97,                   //   the video's own fps (NFR-C4)
+    "sampled_from": "412 quiet frames"  //   provenance of the bank
+  },
+  "wall_seconds": 143.8                 // float   - the FR-03 deployability number
+}</code></pre></div>
+<p><strong>Invariants.</strong> <code>speed_by_class[c]</code> is <code>null</code> <strong>or</strong> carries both <code>mean</code> and <code>std</code> — never a partial object. <code>density</code> is <code>null</code> under 20 samples. <code>normal_bank.frame_idx</code> is in <strong>source</strong> frame numbers and <code>normal_bank.src_fps</code> is the <strong>source</strong> fps; converting with <code>eff_fps</code> instead would overstate every retrieval timestamp by the stride factor.</p>
+<h4 id="11-2-out-alerts-json-the-run-artifact">11.2 <code>out/alerts.json</code> — the run artifact</h4>
+<p>Written by <code>run.py</code> (both modes, via <code>_write_out</code>). Read by <code>demo.py</code>, <code>eval_run.py</code>, <code>forensic.py</code>. Self-describing on purpose: it embeds the effective config, so any result reproduces from its own artifact (NFR-C9).</p>
+<div class="codewrap"><span class="codelang">jsonc</span><pre class="code"><code>{
+  "config": { /* the FULL effective config after preset and --set */ },
+  "eff_fps": 3.0,
+  "n_frames": 1800,
+  "wall_seconds": 512.4,                // end-to-end, for the FPS claim
+  "track_seconds": 301.2,               // batch mode only - bottleneck attribution
+  "vlm_latency_ms": [2140.5, 1980.2],   // one per adjudicated candidate -&gt; p50/p95
+  "alerts": [
+    {
+      "kind": "loiter",                 // loiter | abandoned | speed_anomaly |
+                                        //   zone_intrusion | density_anomaly
+      "track_id": 17,                   // -1 for scene-level (density) events
+      "cls": 0,                         // detector class id; -1 for scene-level
+      "t_start": 132.0,                 // seconds, SAMPLED time
+      "t_end": 136.0,
+      "score": 0.781,                   // fused (or geometric_only) score
+      "ema": 0.744,                     // smoothed score at the raise decision
+      "geo_score": 0.62,                // pre-fusion geometric term, always present
+      "facts": {                        // FR-16: the arithmetic that justified it
+        "dwell_s": 18.4, "radius_px": 45,
+        "track_window": [120.0, 158.0],
+        "identity": 12,                 // only when re-ID actually linked it
+        "owner_hint": { "possible_owner_track_id": 4, "distance_px": 62.0 },
+                                        // abandoned only, and only when a person
+                                        //   was actually nearby - a hint, not a claim
+        "novelty": 0.412,               // only when the bank was consulted
+        "open_vocab_hits": [ { "t": 133.0, "prompt": "abandoned bag",
+                               "conf": 0.31, "xyxy": [0,0,0,0] } ]
+      },
+      "label": "person loitering at gate",  // VLM, or "not judged"
+      "why": "A person remains ..."          // VLM sentence, or the noop reason
+    }
+  ]
+}</code></pre></div>
+<p><strong>Invariants.</strong> <code>facts</code> is non-empty for every alert (FR-16). <code>score</code> is a float in [0,1]. <code>label</code>/<code>why</code> may be the noop strings but are never absent. <code>t_start &lt;= t_end</code>, and <code>t_end - t_start &gt;= fuse.min_event_seconds</code> for every emitted alert.</p>
+<h4 id="11-3-ground-truth-label-file-input-to-eval-run-py">11.3 Ground-truth label file (input to <code>eval_run.py</code>)</h4>
+<p>Whatever the dataset ships (CUHK Avenue ships <code>.mat</code>) is converted once into:</p>
+<div class="codewrap"><span class="codelang">json</span><pre class="code"><code>{ "anomalous_ranges": [[12.0, 18.5], [40.0, 44.0]] }</code></pre></div>
+<p>Seconds, for <strong>this</strong> video, in the same time base as <code>alerts.json</code>. Frame labels are painted from these ranges at <code>eff_fps</code> (§12.11), so the range file and the alerts file must come from the same run's <code>eff_fps</code>.</p>
+<h4 id="11-4-the-refusal-contract">11.4 The refusal contract</h4>
+<p><strong>P3 as a table.</strong> These are not missing features; they are the specified behaviour, and a reviewer should be able to check each one.</p>
+<div class="tablewrap"><table><thead><tr><th>Call site</th><th>Condition</th><th>Returns</th><th>Rationale</th></tr></thead><tbody><tr><td><code>Tracklet.speeds_px_s</code></td><td>fewer than 2 points</td><td><code>None</code> (not <code>0.0</code>)</td><td>Speed is undefined, not zero</td></tr><tr><td><code>Tracklet.speeds_px_s</code></td><td>duplicate timestamps</td><td><code>NaN</code> for that step</td><td>A zero dt is bad data, not infinite speed</td></tr><tr><td><code>Tracklet.dwell_seconds</code></td><td>fewer than 2 points</td><td><code>0.0</code></td><td>Dwell over a single sample genuinely is zero</td></tr><tr><td><code>events._speed_stats</code></td><td>fewer than 20 samples for a class</td><td><code>(None, None)</code></td><td>No baseline, no z-score, no claim</td></tr><tr><td><code>events.detect_events</code></td><td><code>tr.n() &lt; min_track_frames</code></td><td>tracklet skipped</td><td>A 2-frame blip gets no verdict</td></tr><tr><td><code>events.detect_events</code></td><td><code>sd</code> is <code>None</code> or <code>0.0</code></td><td>no speed event</td><td>A zero-variance baseline cannot produce a z</td></tr><tr><td><code>events._density_events</code></td><td><code>density</code> is <code>None</code> or <code>std</code> falsy</td><td>no events emitted</td><td>No fitted baseline, no crowding claim</td></tr><tr><td><code>fit.py</code> density</td><td>fewer than 20 frame samples</td><td><code>density: null</code></td><td>Same rule, persisted</td></tr><tr><td><code>fit.fit_embeddings</code></td><td><code>open_clip</code> missing or no frames read</td><td><code>None</code></td><td>No bank rather than an empty one</td></tr><tr><td><code>vlm_judge._parse</code></td><td>no JSON object in the reply</td><td><code>score: None</code>, <code>label: "unparsed"</code></td><td>An unparseable judge has no opinion</td></tr><tr><td><code>vlm_judge._parse</code></td><td><code>score</code> key present but null</td><td><code>score: None</code></td><td>Preserved, never coerced</td></tr><tr><td><code>fuse.fuse_score</code></td><td>only the geometric part present</td><td><code>(geo_score, "geometric_only")</code></td><td>The mode is <em>labelled</em>, so a reader knows</td></tr><tr><td><code>NoopJudge.summarize</code></td><td><code>vlm.backend=none</code></td><td><code>(None, reason)</code></td><td>Refusal carries its reason</td></tr><tr><td><code>retrieve.load_bank</code></td><td>no bank in <code>scene_fit.json</code></td><td><code>(None, None, reason)</code></td><td>Callers print <code>refused: &lt;reason&gt;</code></td></tr><tr><td><code>reid.tracklet_embedding</code></td><td>fewer than <code>min_crops</code> usable crops</td><td><code>None</code></td><td>A single frame is not a re-ID signature</td></tr><tr><td><code>reid.link_identities</code></td><td>no usable embedding</td><td>keeps own <code>track_id</code>, excluded from <code>linked</code></td><td>No claim beats a guessed one</td></tr><tr><td><code>evaluate.report</code></td><td>labels single-class</td><td><code>{"error": ...}</code>, no AUC</td><td>AUC is undefined; printing one would be a lie</td></tr><tr><td><code>evaluate.sweep</code></td><td>labels single-class</td><td>one-row error list</td><td>Refuses as a whole rather than emitting threshold-only rows</td></tr><tr><td><code>eval_run.time_to_detection</code></td><td>a labelled range never caught</td><td><code>None</code></td><td>A miss, reported as a miss, never as 0 s</td></tr><tr><td><code>openvocab.NoopOpenVocab</code></td><td>backend <code>none</code></td><td><code>{hits: [], reason: "...not run"}</code></td><td>Empty <strong>with a reason</strong>, distinguishable from "looked and found nothing"</td></tr></tbody></table></div>
+<h4 id="11-5-unit-and-colour-space-discipline-nfr-c4-nfr-c7">11.5 Unit and colour-space discipline (NFR-C4, NFR-C7)</h4>
+<p>Four conversions in this system are silent when wrong — nothing raises, quality just drops.</p>
+<div class="tablewrap"><table><thead><tr><th>Quantity</th><th>Space</th><th>Where converted</th><th>Failure if mixed</th></tr></thead><tbody><tr><td>Tracklet <code>t[]</code></td><td>seconds in <strong>sampled</strong> time (<code>i / eff_fps</code>)</td><td><code>tracks._accumulate</code></td><td>Every downstream window shifts</td></tr><tr><td><code>normal_bank.frame_idx</code></td><td><strong>source</strong> frame numbers</td><td><code>fit.py</code> quiet frames: <code>t * src_fps</code></td><td>Retrieval timestamps overstated by the stride factor</td></tr><tr><td>Retrieval seconds</td><td><code>frame_idx / src_fps</code> — never <code>eff_fps</code></td><td><code>retrieve.search</code></td><td>10x timestamp error at <code>target_fps=3</code></td></tr><tr><td>Speeds, radii</td><td><strong>pixels</strong> per second / pixels</td><td><code>events.py</code></td><td>Altitude-dependent; see §18 R-04</td></tr><tr><td>Frame colour</td><td>OpenCV BGR to model RGB, exactly once</td><td><code>fit.py</code> <code>f[:, :, ::-1]</code>; <code>vlm_judge</code>/<code>reid</code> <code>cv2.cvtColor</code></td><td><strong>Nothing crashes</strong> — detection quality quietly drops</td></tr><tr><td>Array layout</td><td>HWC (NumPy/PIL) to CHW (Torch), plus batch dim</td><td>inside the model processors</td><td>Shape error two frames deep in a stack trace</td></tr></tbody></table></div>
+<h3 id="12-module-specifications">12. Module specifications</h3>
+<p>Each specification states: responsibility, interface, algorithm, knobs, refusals, invariants.</p>
+<h4 id="12-1-run-py-orchestrator">12.1 <code>run.py</code> — orchestrator</h4>
+<p><strong>Responsibility.</strong> Resolve configuration, dispatch to batch or streaming, emit one log line per stage, persist <code>alerts.json</code>. It owns no algorithm; it owns the <em>order</em> and the artifact.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>run.py --config config.yaml [--video PATH]
+       [--preset day|night|fast|accurate|live] [--set k.k=v ...]
+       [--out out/alerts.json]
+
+apply_overrides(cfg, pairs) -&gt; dict
+_write_out(path, cfg, eff_fps, n_frames, alerts, wall, lat, t_track=None) -&gt; None
+_run_streaming(cfg, a, t_all0, speed_stats, density, novelty_fn) -&gt; None</code></pre></div>
+<p><code>apply_overrides</code> walks dotted keys (<code>vlm.backend</code>) and parses the value with <code>yaml.safe_load</code>, so <code>false</code>, <code>0.25</code> and <code>[1,2]</code> all arrive correctly typed.</p>
+<p><strong>Ordering decision worth noting.</strong> The scene fit is loaded <strong>before</strong> tracking, not after. In batch mode the order would not matter; in streaming mode the baselines must be available from the very first window, so the load was hoisted. One code path, both modes.</p>
+<p><strong>The log line contract</strong> — §14 treats these as a machine-parseable trace:</p>
+<div class="tablewrap"><table><thead><tr><th>Line</th><th>Stage</th><th>Emits</th></tr></thead><tbody><tr><td><code>[0]</code></td><td>preset applied / scene fit loaded (or the fallback notice)</td><td>provenance</td></tr><tr><td><code>[1-2]</code></td><td>tracking (batch)</td><td>tracklet count, sampled frames, eff fps, wall, frames/s</td></tr><tr><td><code>[1-5]</code></td><td>streaming header</td><td>window and retire_after, notice that alerts appear as found</td></tr><tr><td><code>[2b]</code></td><td>re-ID (conditional)</td><td>tracklets to identities, count linked across gaps</td></tr><tr><td><code>[3]</code></td><td>candidate events</td><td>count and % of tracklets</td></tr><tr><td><code>[3b]</code></td><td>open-vocab (conditional)</td><td>total hits across candidate windows</td></tr><tr><td><code>[4]</code></td><td>VLM stage</td><td>call count and mean ms</td></tr><tr><td><code>[5]</code></td><td>suppression</td><td>alerts kept, events suppressed (batch) / alerts, events judged, live tracklets (streaming)</td></tr><tr><td><code>[5b]</code></td><td>streaming only</td><td><strong>first alert at Xs wall — batch could not have alerted before Ys</strong></td></tr><tr><td><code>[6]</code></td><td>write</td><td>output path</td></tr><tr><td><code>[7]</code></td><td>end-to-end</td><td>wall seconds and sustained FPS, "this machine"</td></tr></tbody></table></div>
+<p><strong>Invariants.</strong> Preset before <code>--set</code> (NFR-C3). Open-vocab is constructed only when enabled — an earlier version looped every candidate through a no-op. One <code>cv2.VideoCapture</code> serves the whole judging loop and is released in a <code>finally</code>. <code>vlm_latency_ms</code> is persisted because F5 needs p50/p95 and it was previously measured, printed and thrown away.</p>
+<p><strong>Known gap.</strong> No exception boundary around the per-event stages (NFR-V4, §17.2 G-A).</p>
+<h4 id="12-2-config-yaml-the-knob-surface">12.2 <code>config.yaml</code> — the knob surface</h4>
+<p>Nine sections: <code>video</code>, <code>stream</code>, <code>detector</code> (incl. <code>sahi</code>), <code>events</code>, <code>open_vocab</code>, <code>night</code>, <code>reid</code>, <code>retrieve</code>, <code>vlm</code>, <code>fuse</code>. Every line a reviewer is likely to ask about is marked <code>KNOB</code>. The full knob reference with failure directions is §19.1 — that table exists because <strong>the first question a reviewer asks is never "what model?", it is "what happens if you turn this up?"</strong></p>
+<p>Two defaults are themselves design statements: <code>detector.weights: yolo11s.pt</code> at <code>imgsz: 1280</code> (the <code>s</code> size matches the overnight fine-tune, and 1280 is the aerial requirement), and <code>open_vocab.weights: yolov8l-worldv2.pt</code> — <strong>the brief's YOLO-World-L</strong>, dropped to <code>s</code> only if FPS forces it and <em>said out loud</em> rather than left as a silent mismatch with the slide.</p>
+<h4 id="12-3-fit-py-scene-fitting-fr-03">12.3 <code>fit.py</code> — scene fitting (FR-03)</h4>
+<p><strong>Responsibility.</strong> Measure the scene-specific parameters on footage never seen before. <strong>Nothing here trains.</strong> This module is the deployability claim: <em>five minutes to adapt to a scene we had never seen.</em></p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>fit.py --video PATH [--config config.yaml] [--fit-seconds 120] [--bank-frames 200]
+
+src_fps_of(video_path) -&gt; float
+fit_embeddings(video_path, n_frames, out_npy, max_seconds=None,
+               quiet_frames=None) -&gt; dict | None</code></pre></div>
+<p><strong>Algorithm.</strong></p>
+<ol>
+<li>Track <code>--fit-seconds</code> of footage. This sets <code>cfg["video"]["max_seconds"]</code>, which caps the read — so the five-minute claim holds on a two-hour file instead of quietly processing all of it.</li>
+<li><strong>Speed baseline</strong> — <code>_speed_stats(tracks)</code> per class; <code>(None, None)</code> under 20 samples.</li>
+<li><strong>Density baseline</strong> — objects per sampled timestamp, to <code>mean</code>, <code>std</code>, <code>p95</code>; <code>None</code> under 20 samples.</li>
+<li><strong>Quiet-frame selection</strong> — timestamps whose object count is <strong>at or below the scene median</strong>, converted from sampled seconds to source frame numbers via <code>src_fps_of</code>.</li>
+<li><strong>Normal bank</strong> — SigLIP ViT-B-16/webli (fallback ViT-B-32/openai) over those quiet frames, L2-normalised, saved to <code>out/normal_bank.npy</code>.</li>
+</ol>
+<p><strong>Why quiet frames and not uniform sampling.</strong> The bank is meant to describe <em>normal</em>. Sampling uniformly across footage that contains the anomalies puts the anomalies <strong>in</strong> the bank, and every novelty score is then quietly flattened — a failure with no error and no obvious symptom. When no track data is available the code falls back to uniform sampling and records <code>sampled_from: "uniform (no track data - bank may include anomalies)"</code>, so the weaker basis is visible in the artifact rather than assumed away.</p>
+<p><strong>Knobs.</strong> <code>--fit-seconds</code> (the deployability number), <code>--bank-frames</code> (index size vs fit time). <strong>Refusals.</strong> Density <code>None</code> under 20 samples; bank <code>None</code> when <code>open_clip</code> is unavailable.</p>
+<h4 id="12-4-pipeline-tracks-py-detection-and-association-fr-01-fr-02-fr-15">12.4 <code>pipeline/tracks.py</code> — detection and association (FR-01, FR-02, FR-15)</h4>
+<p><strong>Responsibility.</strong> Turn sampled frames into tracklets. One Ultralytics pass does detection <em>and</em> association. <strong>Everything downstream works on tracklets, not pixels — which is why the pipeline is cheap.</strong></p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>@dataclass Tracklet:
+    track_id: int; cls: int
+    t: list[float]; cx, cy, w, h, conf: list[float]
+    identity: int = -1                     # set by reid.py; -1 = no claim
+    n() -&gt; int
+    duration() -&gt; float                    # 0.0 under 2 points
+    speeds_px_s() -&gt; ndarray | None        # None under 2 points
+    dwell_seconds(radius_px) -&gt; float      # O(n), §13.1
+
+run_tracking(cfg, on_frame=None) -&gt; (dict[int, Tracklet], int, float)
+_accumulate(tracks, r, ts, on_frame) -&gt; None
+_clahe_bgr(frame, clahe) -&gt; ndarray
+_resolve_half(d) -&gt; bool</code></pre></div>
+<p><code>on_frame(ts, result, ids, tracks)</code> fires per sampled frame — that hook is what streaming mode drives to emit alerts before the video ends.</p>
+<p><strong>Two read paths, and why.</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Path</th><th>When</th><th>Mechanism</th><th>Cost</th></tr></thead><tbody><tr><td><strong>Streaming decode</strong></td><td>default</td><td><code>model.track(source=path, stream=True, persist=True, vid_stride=stride)</code> — Ultralytics owns the decode loop</td><td>Cheapest; frames never touched in Python</td></tr><tr><td><strong>Manual + CLAHE</strong></td><td><code>night.enabled and night.clahe</code></td><td><code>cv2.VideoCapture</code> read loop, CLAHE on the L channel, then <code>model.track(frame, persist=True)</code> per frame</td><td>Loses Ultralytics' own streaming; this is the documented custom-loop pattern for keeping tracker state across independent calls</td></tr></tbody></table></div>
+<p>The second path exists because <strong>CLAHE must touch pixels before the detector sees them</strong>, which is impossible when the video path is handed to <code>model.track()</code>. This is a genuine trade, and the Q&amp;A answer is to name it: <em>option 1 is a lower <code>conf</code> only, option 2 is CLAHE properly; both are implemented and the preset selects.</em></p>
+<p><code>_resolve_half(d)</code> decides <code>half</code> once — <code>half=True</code> on CPU raises in several Ultralytics versions, so device capability is resolved before the model is called rather than discovered inside it (NFR-V7).</p>
+<p><strong>Knobs.</strong> <code>video.target_fps</code> (the 10x lever), <code>detector.imgsz</code> (<strong>1280 for aerial</strong> — a top-down person is ~15 px after a 640 resize and vanishes), <code>detector.conf</code> (recall here, precision later in the event layer), <code>iou</code>, <code>classes</code> (fewer classes, fewer nonsense tracks), <code>max_det</code>, <code>tracker</code> (<code>bytetrack</code> vs <code>botsort</code>, which adds its own re-ID), <code>night.*</code>, <code>video.max_seconds</code>.</p>
+<p><strong>Invariant.</strong> Timestamps are <code>frame_index / eff_fps</code> — <strong>sampled</strong> time (§11.5).</p>
+<h4 id="12-5-pipeline-events-py-the-arithmetic-layer-fr-04">12.5 <code>pipeline/events.py</code> — the arithmetic layer (FR-04)</h4>
+<p><strong>Responsibility.</strong> Tracklets to candidate events. <strong>No model runs here, and this is where the accuracy is.</strong> Every event carries the numbers that justified it, so the VLM prompt and the operator UI can both quote them (P7).</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>@dataclass CandidateEvent:
+    kind: str; track_id: int; cls: int
+    t_start: float; t_end: float; geo_score: float; facts: dict
+
+detect_events(tracks, cfg, class_speed_stats=None, density=None) -&gt; list[CandidateEvent]
+clip_window(t_start, t_end, t_peak, clip_seconds) -&gt; (float, float)
+_speed_stats(tracks) -&gt; dict[int, (float|None, float|None)]
+_density_events(tracks, density, z_threshold) -&gt; list[CandidateEvent]
+_point_in_poly(x, y, poly) -&gt; bool          # ray casting</code></pre></div>
+<p><strong>The five event kinds.</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Kind</th><th>Condition</th><th><code>geo_score</code></th><th>Facts</th><th><code>track_id</code></th></tr></thead><tbody><tr><td><code>abandoned</code></td><td><code>dwell(abandoned_radius_px) &gt;= abandoned_seconds</code> <strong>and</strong> <code>cls not in person_classes</code></td><td><code>min(1, still / 2*abandoned_seconds)</code></td><td><code>stationary_s</code>, <code>radius_px</code>, <code>track_window</code>, <code>owner_hint</code></td><td>track</td></tr><tr><td><code>loiter</code></td><td><code>dwell(loiter_radius_px) &gt;= loiter_seconds</code>, only if not abandoned</td><td><code>min(1, dwell / 2*loiter_seconds)</code></td><td><code>dwell_s</code>, <code>radius_px</code>, <code>track_window</code></td><td>track</td></tr><tr><td><code>speed_anomaly</code></td><td><code>abs(z) &gt;= speed_z_threshold</code>, <code>z = (max(speed) - mean_cls) / std_cls</code></td><td><code>min(1, abs(z) / 2*threshold)</code></td><td><code>z</code>, <code>peak_px_s</code>, <code>peak_at_s</code></td><td>track</td></tr><tr><td><code>zone_intrusion</code></td><td>any tracklet point inside a <code>restricted_zones</code> polygon</td><td><code>min(1, 0.6 + dur/20)</code></td><td><code>zone</code>, <code>seconds_inside</code></td><td>track</td></tr><tr><td><code>density_anomaly</code></td><td>contiguous run of frames with <code>(count - mean)/std &gt;= density_z_threshold</code></td><td><code>min(1, abs(peak_z) / 2*threshold)</code></td><td><code>peak_count</code>, <code>z</code>, <code>run_window</code></td><td><strong>-1</strong> (scene)</td></tr></tbody></table></div>
+<p><strong>Three decisions worth defending in Q&amp;A.</strong></p>
+<ul>
+<li><strong><code>abandoned</code> wins over <code>loiter</code></strong> when both fire: the tighter radius is the more specific claim. Restricted to non-person classes, because a standing person is loitering, not abandoned. What the event actually claims is <em>"a non-person object stopped moving"</em>, plus an optional <strong>owner proximity hint</strong> (below) — and the demo says exactly that rather than implying more.</li>
+<li><strong><code>person_classes</code> is a list, not an id — and that is a class-map hazard, not a style choice.</strong> COCO has one human class; <strong>VisDrone has two</strong> (0 = pedestrian, 1 = people). Hardcoding a single id means that swapping in a VisDrone-trained checkpoint silently reclassifies the <em>other</em> human class as an <strong>abandoned object</strong> — a wrong alert with a confident explanation attached. The <code>visdrone</code> preset therefore changes the weights, the class list and <code>person_classes</code> <strong>in one move</strong>, because changing any one of the three alone is the bug. The singular <code>person_class</code> key is still read as a fallback.</li>
+<li><strong>Windows are tightened around the moment that justified them</strong> (<code>clip_window</code>). Events used to carry the whole tracklet lifetime, so a loiterer's window was minutes long and the VLM's six frames were spread across all of it instead of across the anomaly. <code>video.clip_seconds</code> existed for this and was dead config.</li>
+<li><strong>Density is a <em>scene</em> event with <code>track_id = -1</code></strong>, because <code>fuse.suppress</code> keys its cooldown on <code>track_id</code> and crowding is not an object.</li>
+</ul>
+<p><strong>The owner-proximity hint.</strong> <code>_nearby_person_at_start(tracks, tr, person_classes, radius_px=80)</code> answers one narrow question: <em>was a person within 80 px of this object in the two seconds around the moment it appeared?</em> If so, <code>facts["owner_hint"]</code> carries <code>{possible_owner_track_id, distance_px}</code>; otherwise the key is absent. This is deliberately <strong>not</strong> association — the name says <code>hint</code> and <code>possible_</code>, the distance is reported so a reader can judge it, and <strong>no identity is ever guessed</strong> (P3). It is the cheap version of a hard problem, labelled as such.</p>
+<p><strong>Final steps.</strong> Re-ID identity is carried into <code>facts</code> when a link was actually made (<code>identity != -1</code>), then the list is filtered by <code>events.candidate_floor</code> — <strong>the last cheap gate before the expensive judge</strong> (P1).</p>
+<p><strong>Stated limitation (P8).</strong> Speed is in <strong>pixels</strong>, and a 45 px dwell radius means different things at 20 m and 80 m altitude. Pixel speed conflates object motion with platform motion. The honest position: trust speed while hovering, gate on it otherwise, or stabilise with sparse optical flow — <strong>naming this scores better than pretending it isn't there.</strong> §18 R-04.</p>
+<h4 id="12-6-pipeline-openvocab-py-open-vocabulary-detection-fr-05">12.6 <code>pipeline/openvocab.py</code> — open-vocabulary detection (FR-05)</h4>
+<p><strong>Responsibility.</strong> Name things the closed-set detector has no class for.</p>
+<p><strong>The single biggest architectural correction.</strong> The brief's scope list leads with <strong>open-world</strong> video understanding, and that word decides the detector. A COCO-trained YOLO knows eighty things. <strong>An anomaly is almost by definition a thing you had no class for</strong> — so a closed-set detector is structurally the wrong instrument for the headline problem, however well tuned. Even the overnight VisDrone weights are closed-set: better at <em>seeing small things</em>, not at <em>naming new ones</em>. YOLO-World closes that gap by taking text as the class list at inference time.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>build_open_vocab(cfg) -&gt; NoopOpenVocab | YoloWorldOpenVocab
+.detect(video_path, ev, prompts=None) -&gt; {"hits": [...], "reason": str|None}
+# hit: {t, prompt, conf, xyxy}</code></pre></div>
+<p><strong>Algorithm.</strong> Sample <code>frames_per_event</code> frames inside <code>[ev.t_start, ev.t_end]</code>, run the text-prompted detector, return boxes. Prompts are re-<code>set_classes</code>'d only when they change. Hits land in <code>ev.facts["open_vocab_hits"]</code> and therefore reach the VLM prompt <em>and</em> the UI.</p>
+<p><strong>Why it is cheap.</strong> Same cascade logic, one layer up: closed-set for the fast always-on pass, open-vocabulary fired on candidate windows only — never the full 18,000 frames.</p>
+<p><strong>Structural limitation, and it must be named (§17.2 G-D).</strong> Open-vocab can only see windows that geometry already flagged, and geometry only sees objects the <em>closed-set</em> detector tracked. A bag that is not in <code>detector.classes</code> never becomes a track, so it never becomes a candidate, so YOLO-World is never pointed at it. The mitigation available today is to include the relevant COCO classes in <code>detector.classes</code>; the structural fix is a periodic open-vocab sweep independent of the candidate list, which is not implemented.</p>
+<p><strong>Knobs.</strong> <code>open_vocab.prompts</code> — <strong>the real tuning surface on the day.</strong> Short noun phrases beat sentences; <code>"person climbing fence"</code> beats <code>"person"</code>. <code>conf</code> (0.15 — open-vocab scores run lower than closed-set), <code>frames_per_event</code>.</p>
+<h4 id="12-7-pipeline-vlm-judge-py-adjudication-fr-07-fr-11">12.7 <code>pipeline/vlm_judge.py</code> — adjudication (FR-07, FR-11)</h4>
+<p><strong>Responsibility.</strong> Decide whether a geometrically flagged thing is genuinely anomalous, and say why in one sentence. Constrained JSON out.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>build_judge(cfg) -&gt; NoopJudge | QwenJudge | SmolVLMJudge
+.judge(ev, frames) -&gt; {"anomalous": bool|None, "score": float|None,
+                       "label": str, "why": str}
+.summarize(alerts, t0, t1) -&gt; (str|None, str|None)
+extract_frames(video_path, t0, t1, k, cap=None) -&gt; list[ndarray]   # RGB
+_quant_config(v) -&gt; BitsAndBytesConfig | None
+_parse(raw) -&gt; dict</code></pre></div>
+<p><strong>Prompt design.</strong> The prompt hands the model the <strong>measured</strong> facts and tells it to trust them — class, track id, event kind, the fact dict, and the window — then asks the one question a VLM is actually good at: <em>is this genuinely anomalous for this scene, or ordinary activity the geometry rule over-triggered on?</em> Output is a fixed four-key JSON object. <strong>The VLM is a precision filter over a high-recall geometric stage, not a detector.</strong></p>
+<p><strong><code>extract_frames</code> detail.</strong> For <code>k == 1</code> it returns the <strong>middle</strong> frame, not <code>t0</code> — a single frame from the very start of a window is the least informative one available. An optional open <code>cap</code> is threaded through so one capture serves the whole loop.</p>
+<p><strong>Loading.</strong> <code>_HFVisionJudge</code> is a shared body; <code>QwenJudge</code> and <code>SmolVLMJudge</code> supply only the model class and id, so <strong>the primary path and the documented fallback cannot drift apart.</strong> <code>_quant_config</code> returns <code>None</code> — plain fp16/bf16 — when 4-bit is off, when <code>bitsandbytes</code> is absent, or when there is no CUDA device, because bitsandbytes has no usable CPU backend and silently "succeeding" there would crash deeper in with a worse error (NFR-V7).</p>
+<p><code>torch.inference_mode()</code> rather than bare <code>no_grad()</code>: forgetting it builds an autograd graph nothing consumes and OOMs a GPU with room to spare — <strong>the single most common cause of an OOM that makes no sense.</strong> The text-only path passes <code>images=None</code>, not <code>[]</code>, because an empty list makes some processors build a zero-length pixel tensor and fail inside the model.</p>
+<p><strong><code>_parse</code>.</strong> Regex-extract the first JSON object, <code>json.loads</code>, clamp <code>score</code> to [0,1]. Anything unparseable becomes <code>score: None</code> with the raw text truncated into <code>why</code> — <strong>never <code>0.0</code></strong> (P3).</p>
+<p><strong><code>summarize</code> (F6).</strong> Text-only, no images, no extra frame extraction — it reuses facts and verdicts already computed, so it is nearly free on top of per-event judging. The prompt states explicitly: <em>do not invent anything not present in the facts below.</em> The operating instruction is to read the paragraph aloud and check every claim, <strong>because a VLM will invent a detail if the prompt lets it.</strong></p>
+<p><strong>Knobs.</strong> <code>max_pixels</code> (halve it, roughly halve the latency — the number-one lever), <code>frames_per_event</code> (4-8), <code>max_new_tokens</code>, <code>temperature = 0</code>, <code>load_4bit</code>.</p>
+<h4 id="12-8-pipeline-fuse-py-fusion-and-suppression-fr-08">12.8 <code>pipeline/fuse.py</code> — fusion and suppression (FR-08)</h4>
+<p><strong>Responsibility.</strong> Turn a noisy score stream into an alert stream an operator will actually keep switched on.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>fuse_score(ev, verdict, cfg) -&gt; (float, "fused" | "geometric_only")
+suppress(scored: list[(ev, verdict, score)], cfg) -&gt; list[dict]</code></pre></div>
+<p><strong>Fusion.</strong> A weighted mean over <strong>only the parts that exist</strong>, renormalised by the present weights:</p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>parts = [(w_geometric, geo_score)]
+      + [(w_vlm,      vlm_score)]     if vlm_score is not None
+      + [(w_novelty,  novelty)]       if novelty is not None and w_novelty &gt; 0
+
+score = sum(w_i * s_i) / sum(w_i)     if len(parts) &gt; 1
+      = geo_score, "geometric_only"   if len(parts) == 1</code></pre></div>
+<p>Renormalisation is what makes the degradation ladder (§7.1) sound: dropping the VLM term does not scale the score down, it changes which evidence the score is made of — and the mode string says which. The weighting reflects epistemics, not tuning: <strong>geometry is measured, the VLM is opinion, so opinion does not dominate.</strong> <code>w_geometric 0.45</code> / <code>w_vlm 0.55</code> is the current balance, with the novelty term off by default until the bank is validated.</p>
+<p><strong>Suppression.</strong> The state machine in §13.5.</p>
+<h4 id="12-9-pipeline-reid-py-identity-across-gaps-fr-09">12.9 <code>pipeline/reid.py</code> — identity across gaps (FR-09)</h4>
+<p><strong>Responsibility.</strong> Link tracklets that are the same physical object across an occlusion gap the tracker lost.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>OSNetEmbedder(cfg).embed(crop_bgr) -&gt; ndarray | None       # L2-normalised
+crop_at(cap, t, cx, cy, w, h) -&gt; ndarray | None
+tracklet_embedding(cap, tr, embedder, k=3, min_crops=2) -&gt; ndarray | None
+link_identities(tracks, video_path, cfg) -&gt; (dict[int,int], set[int])</code></pre></div>
+<p><strong>Check the cheaper option first.</strong> BoT-SORT can reuse the detector's own features for re-ID. Set <code>detector.tracker=botsort.yaml</code>, count ID switches by eye over 30 s, and only add OSNet if it is still bad — <strong>that check can save a model and a whole phase.</strong></p>
+<p><strong>Algorithm.</strong> §13.7. Returns <code>(identity, linked)</code>: the identity map <em>and</em> the set of tracklets actually merged, so <code>run.py</code> can set <code>identity = -1</code> for tracklets that merely kept their own id. <strong><code>-1</code> means "no claim made"</strong>, which is different from "linked to itself".</p>
+<p><strong>Knobs.</strong> <code>cosine_threshold</code> — both failure directions must be stateable: <strong>too low merges strangers; too high splits one person into three.</strong> <code>crops_per_track</code>.</p>
+<p><strong>Night caveat (P8).</strong> Re-ID that leans on colour histograms fails silently on near-monochrome video. OSNet's learned embedding degrades more gracefully — but the honest report says <em>identity matching is weaker after dark</em>, rather than quoting one confidence for both conditions.</p>
+<h4 id="12-10-pipeline-retrieve-py-retrieval-and-novelty-fr-06-fr-10">12.10 <code>pipeline/retrieve.py</code> — retrieval and novelty (FR-06, FR-10)</h4>
+<p><strong>Responsibility.</strong> One index, two features. The same SigLIP embeddings serve a <strong>text query over the footage</strong> and a <strong>zero-shot anomaly score</strong>.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>load_bank(fit_json, bank_npy) -&gt; (embs|None, bank_meta|None, reason|None)
+novelty(frame_emb, bank, k=5) -&gt; float                     # §13.6
+score_frame_novelty(frame_rgb, ...) -&gt; (float|None, reason|None)
+search(query, ..., src_fps=None, top_k=5) -&gt; {"results": [...], "reason": ...}
+_load_encoder(encoder_tag) -&gt; (model, preprocess, tokenizer, device)   # cached</code></pre></div>
+<p><strong>Why this is zero-shot and not trained.</strong> The bank is <em>measured</em>, not learned — the same framing as WinCLIP and AnomalyCLIP. There is no anomaly model, no labels and no gradient step; there is a distance to what was observed to be quiet. Contrastive image-text pretraining is what makes both halves work at all: it is why open-vocabulary detection is possible, and why a text query and an image embedding live in the same space.</p>
+<p><strong>Encoder consistency (NFR-C6).</strong> <code>_load_encoder</code> is keyed on the tag recorded in the bank metadata and cached, because <code>score_frame_novelty</code> is called per candidate event and reloading SigLIP from disk each time meant a full model load per event; it also moves the model to GPU, because the bank was built on GPU while queries were being encoded on CPU.</p>
+<p><strong>Timestamp correctness (NFR-C4).</strong> <code>frame_idx</code> holds <strong>source</strong> frame numbers, so seconds needs the video's own fps — never the sampled <code>eff_fps</code>, which would overstate every timestamp by the stride factor.</p>
+<h4 id="12-11-pipeline-evaluate-py-eval-run-py-measurement-fr-12">12.11 <code>pipeline/evaluate.py</code> + <code>eval_run.py</code> — measurement (FR-12)</h4>
+<p><strong>Responsibility.</strong> Produce the numbers that go on the slide, and refuse to produce ones the labels cannot support.</p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>frame_scores(alerts, n_frames, fps) -&gt; ndarray             # scores painted per frame
+report(scores, labels, threshold, fps, latency_ms=None) -&gt; dict
+sweep(scores, labels, lo=0.1, hi=0.95, n=18) -&gt; list[dict]
+
+eval_run.ranges_to_labels(ranges, n_frames, fps) -&gt; ndarray
+eval_run.time_to_detection(alerts, ranges) -&gt; list[float|None]</code></pre></div>
+<p><strong>Metric set.</strong> Frame-level ROC-AUC (the standard in the video-anomaly literature); precision/recall/F1 <strong>always reported with their threshold</strong>, because they are threshold-dependent; FP-frames and <strong>FP/hour</strong>, which is what an operations team actually asks about; p50/p95 VLM latency; and a threshold sweep.</p>
+<p><strong>Time-to-detection.</strong> Seconds from a labelled range's start to the first alert inside it. For a live system this matters more than raw accuracy — <strong>an alert four minutes late is a report, not an alarm.</strong> A range never caught yields <code>None</code>: <em>a miss, reported as a miss, never as 0 s.</em></p>
+<p><strong>Day and night are two runs and two tables</strong>, always both on the slide, even when night is worse (NFR-A2, P8).</p>
+<p><strong>Refusals.</strong> <code>report</code> returns an error object on single-class labels rather than a meaningless AUC; <code>sweep</code> refuses as a whole rather than emitting rows containing nothing but a threshold.</p>
+<h4 id="12-12-forensic-py-cross-event-reasoning-fr-11">12.12 <code>forensic.py</code> — cross-event reasoning (FR-11)</h4>
+<p>Loads <code>alerts.json</code>, filters to a window, hands <strong>all</strong> alerts' timestamps and facts to <code>judge.summarize</code>, prints one paragraph, then prints the standing instruction: <em>verify every claim above against the footage before using it.</em> Text-only and therefore cheap. Refuses cleanly when <code>vlm.backend=none</code>.</p>
+<h4 id="12-13-demo-py-the-operator-surface-fr-13">12.13 <code>demo.py</code> — the operator surface (FR-13)</h4>
+<p><strong>Responsibility.</strong> The judges see this. Build the <em>smallest</em> thing that reads clearly.</p>
+<p><strong>Design decisions.</strong></p>
+<ul>
+<li><strong>A single static self-contained HTML file</strong> written from <code>alerts.json</code>. Static on purpose: <strong>nothing here can break on stage.</strong> No server, no build step, no live model.</li>
+<li>Alert rows ordered by <code>t_start</code>; each row shows time, kind, score, and the one-sentence <code>why</code>.</li>
+<li><strong>Click a row and the video seeks to <code>t_start</code> and plays.</strong> The video is referenced by a path relative to the output directory, so the file works from disk.</li>
+<li><strong>The measured facts are rendered beside every verdict</strong>, which is what makes the "why" auditable (FR-16, P7) rather than a chatbot flourish.</li>
+<li>The empty case is explicit: <em>"No alerts above threshold on this run."</em></li>
+</ul>
+<p><strong>Acceptance test is human.</strong> Hand the laptop to someone who has not seen it. If they cannot say what the system found and why within thirty seconds, <strong>rebuild the screen — not the model.</strong></p>
+<h4 id="12-14-zones-py-restricted-zones-without-typing-coordinates-fr-21">12.14 <code>zones.py</code> — restricted zones without typing coordinates (FR-21)</h4>
+<p>Grabs one frame (optionally at <code>--at SECONDS</code>), opens an OpenCV window, and collects clicked polygons: left click adds a point, <code>n</code> finishes a polygon and starts the next, <code>u</code> undoes, <code>s</code> writes <code>events.restricted_zones</code> straight into <code>config.yaml</code> via <code>yaml.safe_dump</code>, <code>q</code>/ESC quits without saving. The 09:00 runbook allots three minutes to this; without it the same task means hand-typing pixel coordinates under time pressure.</p>
+<p><strong>Note.</strong> It rewrites <code>config.yaml</code> in place, which is the intent, but it is the one tool in the repo that mutates the config surface — so it should be run before a run, never during a demo.</p>
+<h4 id="12-15-training-subsystem-train">12.15 Training subsystem — <code>train/</code></h4>
+<p><strong><code>make_night.py</code>.</strong> Synthesises night frames from daylight training images: gamma 1.8-3.0 down, gain 0.35-0.6, blue-ward desaturation, Gaussian noise sigma 4-12, 50% chance of a 3x3 blur — approximating a real low-light sensor. Writes <code>&lt;stem&gt;_night.&lt;ext&gt;</code> beside the original and <strong>copies the label verbatim, because geometry is unchanged.</strong> Images with no label are skipped — no label, no synthetic twin.</p>
+<p><em>Operational gate:</em> <strong>look at ten output images before training.</strong> Too dark is a real failure mode — if you cannot see the objects, neither can the detector; lower the gamma range and rerun.</p>
+<p><em>Leakage rule (NFR-A9):</em> <code>x.jpg</code> and <code>x_night.jpg</code> must land on the <strong>same side</strong> of any split.</p>
+<p><strong><code>train_aerial.py</code>.</strong> Fine-tunes the aerial detector — the one thing worth training before the event, because viewpoint and scale transfer across cities while "normal" does not.</p>
+<div class="tablewrap"><table><thead><tr><th>Preset</th><th>Model</th><th>imgsz</th><th>Epochs</th><th>Batch</th><th>Freeze</th><th>Wall</th></tr></thead><tbody><tr><td><code>overnight</code></td><td>yolo11s</td><td>1280</td><td>60</td><td>8</td><td>0</td><td>8-10 h — <strong>the one</strong></td></tr><tr><td><code>kaggle</code></td><td>yolo11s</td><td>1024</td><td>40</td><td>12</td><td>0</td><td>5-6 h on free P100/T4</td></tr><tr><td><code>laptop</code></td><td>yolo11n</td><td>960</td><td>25</td><td>8</td><td>10</td><td>3-4 h</td></tr><tr><td><code>fast</code></td><td>yolo11n</td><td>768</td><td>12</td><td>16</td><td>10</td><td>1-1.5 h — out of time</td></tr></tbody></table></div>
+<p>Augmentation is aimed at aerial and low light, not generic photos: <code>hsv_v=0.65</code> (brightness robustness on top of the synthetic dark frames), <code>mosaic=1.0</code> with <code>close_mosaic=8</code> (mosaic helps small objects a lot; off for the last 8 epochs so the model sees real layouts), <code>flipud=0.2</code> (top-down footage has no canonical up), mild rotate/scale, <code>cos_lr</code>, <code>patience=8</code>.</p>
+<p>Three operational flags matter as much as the hyperparameters: <code>--seed</code> (NFR-C8), <code>save_period=5</code> plus <code>--resume</code> (NFR-V6 — a dead session resumes instead of restarting), and <code>--base</code>, which is the <strong>two-stage</strong> path: start from a credible VisDrone-pretrained checkpoint so the overnight GPU is spent only on the <em>night</em> gap.</p>
+<p><strong>The extrapolation check, not optional:</strong> epoch-1 wall-clock x epochs x 1.15 must fit inside the session limit. If it does not, kill it and relaunch a smaller preset immediately. A job stopped early still leaves a usable <code>last.pt</code>; <strong>a job still running when the GPU is needed for the next phase is a straight loss.</strong></p>
+<p><strong>On the two-stage start:</strong> if a credible VisDrone-pretrained checkpoint exists, someone already paid for the aerial adaptation. Verify it really was trained on VisDrone, check the licence, and <strong>A/B it like everything else.</strong></p>
+<h4 id="12-16-pipeline-stream-py-alerts-during-the-pass-fr-19-fr-20">12.16 <code>pipeline/stream.py</code> — alerts during the pass (FR-19, FR-20)</h4>
+<p><strong>Responsibility.</strong> Run the same cascade on a sliding window so alerts are emitted <em>during</em> the pass, and bound memory over hours of footage.</p>
+<p><strong>Why it exists.</strong> The batch path collects every tracklet for the whole file and only then runs the event/VLM/fuse stages. On the brief's own footage — hours, not clips — that means <strong>zero alerts until the video ends</strong> and a <code>tracks</code> dict that grows without bound. The brief asks whether a small VLM can do this <em>in real time</em>, so <strong>latency-to-alert is the question, not just total cost.</strong></p>
+<p><strong>Interface.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>StreamingPipeline(cfg, judge, speed_stats=None, density=None,
+                  on_alert=None, score_novelty=None)
+.on_frame(ts, result, ids, tracks, cap=None) -&gt; None   # driven by run_tracking
+.finalize(tracks, ts, cap=None) -&gt; list[dict]          # the tail window
+._evaluate(tracks, now, cap)      ._suppress_one(ev, verdict, score)
+._retire(tracks, now) -&gt; int</code></pre></div>
+<p><strong>The loop.</strong></p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>every window_seconds of sampled video:
+    live  = tracklets with activity within the last window
+    cands = detect_events(live, cfg, speed_stats, density)
+    for each candidate whose (track_id, kind) has not been judged:
+        judge it, fuse, run one-event hysteresis, emit if it raises
+    retire tracklets idle longer than retire_after</code></pre></div>
+<p><strong>Four decisions that make it correct rather than merely incremental.</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Decision</th><th>Why</th></tr></thead><tbody><tr><td><strong><code>(track_id, kind)</code> memoisation</strong></td><td>The VLM is never re-paid for an event it already judged. Without it, a loiterer is re-adjudicated every window and the cost model collapses (NFR-F9).</td></tr><tr><td><strong>Suppression state persists across windows</strong></td><td>EMA, raised-latch and cooldown are per-track and long-lived; resetting them per window would reintroduce exactly the alert spam hysteresis exists to remove.</td></tr><tr><td><strong>Retirement bounds memory, but <em>not</em> suppression state</strong></td><td>Idle tracklets are dropped so RAM is bounded over hours — but their suppression state is <strong>deliberately kept</strong>, so a re-appearing id cannot re-alert instantly (FM-16).</td></tr><tr><td><strong><code>finalize</code> handles the tail</strong></td><td>Otherwise the last partial window is never judged and the end of every video is silently unmonitored.</td></tr></tbody></table></div>
+<p><strong>The measured claim.</strong> <code>run.py</code> records the wall time of the first alert and prints <code>[5b] first alert at Xs wall - batch mode could not have alerted before Ys</code>. That line is the difference between asserting real-time behaviour and demonstrating it.</p>
+<p><strong>Known gap (§17.2 G-B).</strong> <code>_suppress_one</code> re-implements the <code>fuse.suppress</code> state machine one-event-at-a-time. The two must not diverge; they are currently consistent by inspection, not by construction.</p>
+<h3 id="13-algorithms-in-detail">13. Algorithms in detail</h3>
+<h4 id="13-1-dwell-seconds-o-n-longest-stationary-run">13.1 <code>dwell_seconds</code> — O(n) longest stationary run</h4>
+<p><strong>Problem.</strong> Find the longest interval during which a tracklet stayed within a small neighbourhood — the basis of both <code>loiter</code> and <code>abandoned</code>.</p>
+<p><strong>Naive approach and why it fails.</strong> Recomputing a centroid distance over the whole window for every endpoint is <strong>O(n²)</strong>. On hours of footage at 3 fps a persistent track carries 10,000+ points, and that is <em>minutes of numpy per tracklet</em> — a throughput failure hiding inside a one-line helper, and it was called twice per tracklet.</p>
+<p><strong>Algorithm.</strong> Two-pointer over the tracklet with four monotonic deques holding the running max and min of <code>x</code> and <code>y</code> inside the window. For each right endpoint <code>j</code>, advance the left pointer <code>i</code> while the window's bounding box exceeds side <code>2r</code>; the answer is <code>max(t[j] - t[i])</code>.</p>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>for j in 0..n-1:
+    push j into maxx/minx/maxy/miny, popping dominated indices   # amortised O(1)
+    while (x_max - x_min &gt; 2r) or (y_max - y_min &gt; 2r):
+        i += 1; evict any deque head &lt; i
+    if j &gt; i: best = max(best, t[j] - t[i])</code></pre></div>
+<p><strong>Complexity.</strong> O(n) time, O(n) space; each index is pushed and popped at most once per deque.</p>
+<p><strong>The metric, stated precisely.</strong> This is a <strong>box of side 2r</strong>, not a circle of radius r about the centroid — slightly more permissive at the corners. The property that matters is that the predicate is <strong>monotone in window size</strong> (shrinking a window can never enlarge its bounding box), which is exactly what makes the two-pointer valid. Naming the approximation is preferable to implying an exactness the code does not have.</p>
+<h4 id="13-2-speed-anomaly-per-class-z-score">13.2 Speed anomaly — per-class z-score</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>sp   = norm(delta(cx,cy)) / delta t        elementwise, px/s, dt &lt;= 0 -&gt; NaN
+mu,sd = class_speed_stats[cls]             from fit.py, or per-video fallback
+z    = (nanmax(sp) - mu) / sd
+fire if abs(z) &gt;= speed_z_threshold
+window centred on t[argmax(sp) + 1]        the peak, not the whole track
+geo_score = min(1, abs(z) / (2 * speed_z_threshold))</code></pre></div>
+<p>Guards: skip when <code>sp is None</code>, when <code>sd</code> is <code>None</code> or <code>0.0</code>, or when no element is finite. <code>dt &lt;= 0 -&gt; NaN</code> is what makes duplicate timestamps produce a NaN rather than an infinity. <strong>The baseline is measured on <em>their</em> video, never a global constant</strong> (P2) — precisely what <code>fit.py</code> exists to supply.</p>
+<h4 id="13-3-clip-window-tighten-the-evidence-window">13.3 <code>clip_window</code> — tighten the evidence window</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>if not clip_seconds or (t_end - t_start) &lt;= clip_seconds:  return (t_start, t_end)
+half = clip_seconds / 2
+lo   = max(t_start, min(t_peak - half, t_end - clip_seconds))
+return (lo, lo + clip_seconds)</code></pre></div>
+<p>A window of at most <code>clip_seconds</code> centred on the moment that justified the event, clamped inside the tracklet. Without it, six VLM frames get spread across a four-minute loiter and the model is shown mostly nothing.</p>
+<h4 id="13-4-density-anomaly-scene-level-crowding">13.4 Density anomaly — scene-level crowding</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>per_frame[t] = number of tracked objects at sampled timestamp t
+z(t)         = (per_frame[t] - density.mean) / density.std</code></pre></div>
+<p>Contiguous runs of <code>z &gt;= density_z_threshold</code> become one event each, spanning the run, with <code>peak_count</code> and the peak <code>z</code> in the facts, <code>track_id = -1</code>, and <code>geo_score = min(1, abs(peak_z) / 2*threshold)</code>. <strong>Emits nothing when <code>density</code> is <code>None</code></strong> — the baseline is the claim's basis, and without it there is no claim (FM-6).</p>
+<p>Congestion analysis is nearly free once this exists — it is the same statistic read differently.</p>
+<h4 id="13-5-suppression-the-alert-state-machine">13.5 Suppression — the alert state machine</h4>
+<p>Events are processed in ascending <code>t_start</code>. Per <code>track_id</code>:</p>
+<figure class="diagram"><pre class="mermaid">stateDiagram-v2
+    [*] --&gt; ARMED
+    ARMED --&gt; RAISED: ema &gt;= raise_threshold&lt;br/&gt;AND duration &gt;= min_event_seconds&lt;br/&gt;AND t_start - last_fired &gt;= cooldown_seconds&lt;br/&gt;&lt;b&gt;emit alert&lt;/b&gt;
+    ARMED --&gt; ARMED: ema &lt; raise_threshold&lt;br/&gt;(no alert)
+    RAISED --&gt; ARMED: ema &lt; clear_threshold&lt;br/&gt;(re-armed, no alert)
+    RAISED --&gt; RAISED: ema &gt;= clear_threshold&lt;br/&gt;(already alerting, suppressed)</pre></figure>
+<p>with <code>ema &lt;- alpha*score + (1-alpha)*ema_prev</code> (the first observation seeds it directly).</p>
+<p><strong>Why all four mechanisms are needed.</strong> The EMA stops one noisy score from opening an alert. The asymmetric thresholds (<code>raise 0.62</code> above <code>clear 0.45</code>) stop flicker at the boundary. The latch stops a persistent track re-alerting every window. <code>min_event_seconds</code> stops sub-second artefacts. <code>cooldown_seconds</code> is the hard backstop. Together they turn ~8 scored events into ~3 alerts and stop <strong>one loiterer producing forty rows.</strong></p>
+<p>Historical note recorded deliberately: an earlier version read only <code>raise_threshold</code>, which left <code>clear_threshold</code> and <code>ema_alpha</code> as dead config and <strong>no hysteresis at all despite the claim.</strong> Configuration that is documented but unread is a correctness bug, not a cosmetic one.</p>
+<h4 id="13-6-novelty-zero-shot-anomaly-from-the-normal-bank">13.6 Novelty — zero-shot anomaly from the normal bank</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>sims  = bank @ frame_emb                  # both L2-normalised, so cosine
+top   = k largest sims                    # k = min(5, len(bank))
+score = clamp(1 - mean(top), 0, 1)        # high = unlike anything quiet</code></pre></div>
+<p>k-NN rather than nearest-neighbour, so a single near-duplicate frame cannot flatten the score; clamped because SigLIP cosines can fall outside the [0,1] assumption. Consumed as <code>facts["novelty"]</code> and given weight by <code>fuse.w_novelty</code> (default <code>0.0</code> — <strong>off until the bank is validated on real footage</strong>, because a wrong novelty term is worse than an absent one).</p>
+<h4 id="13-7-re-id-linking-gated-union-find">13.7 Re-ID linking — gated union-find</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>embs = { tid: tracklet_embedding(...) }        # None where too thin
+for each unordered pair (a, b) with both embeddings:
+    if cls(a) != cls(b):                continue   # a car is not a person,
+                                                   #   whatever the cosine says
+    if temporally_overlapping(a, b):    continue   # cannot be the same object
+                                                   #   if seen at the same time
+    if dot(embs[a], embs[b]) &gt;= cosine_threshold:
+        union(a, b); linked |= {a, b}
+identity = { tid: find(tid) }                  # lowest track_id wins as the id</code></pre></div>
+<p><strong>Why union-find and not chained assignment.</strong> With plain <code>identity[b] = identity[a]</code>, a link found later can overwrite an earlier group, so <code>a-b-c</code> comes out <strong>inconsistent depending on iteration order</strong>. Union-find with path halving makes the grouping order-independent and transitive — a determinism requirement (NFR-C1), not a performance one.</p>
+<p>The two gates encode physics, not statistics: <strong>class identity</strong> and <strong>temporal disjointness</strong>. They are the reason a high-scoring but impossible match is never made.</p>
+<p><strong>Complexity.</strong> O(m²) cosine comparisons for m embeddable tracklets, m about 40 — trivial. Crop extraction dominates, which is why one <code>VideoCapture</code> serves every crop (opening one per crop meant ~120 open/seek/close cycles per run).</p>
+<h4 id="13-8-night-path-clahe-and-a-separate-confidence">13.8 Night path — CLAHE and a separate confidence</h4>
+<div class="codewrap"><span class="codelang">text</span><pre class="code"><code>clahe_bgr(frame, clip, grid):
+    lab      = cvtColor(frame, BGR2LAB)
+    l, a, b  = split(lab)
+    l        = createCLAHE(clipLimit=clip, tileGridSize=(grid,grid)).apply(l)
+    return cvtColor(merge([l,a,b]), LAB2BGR)</code></pre></div>
+<p><strong>CLAHE goes on the L channel, never on BGR directly</strong> — equalising the colour channels shifts colour, not contrast. And the night path is two changes, not one:</p>
+<ol>
+<li><strong>Contrast recovery</strong> before inference, so the detector sees a recoverable image instead of a dark one.</li>
+<li><strong>A separate, lower <code>conf</code></strong> (<code>night.conf = 0.15</code> against <code>detector.conf = 0.25</code>), because low contrast plus sensor noise drops detection scores across the board. <strong>One threshold for both conditions is not robustness.</strong></li>
+</ol>
+<p><code>clahe_clip</code> is a real trade and must be presented as one: <strong>more clip limit means more contrast <em>and</em> more amplified noise.</strong> The deliverable is four numbers — detections counted day/night × before/after the night path — and the ability to say which of the four is worst and what you would change first.</p>
+<p><strong>Three further night failure modes, named rather than hidden (P8).</strong></p>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Failure</th><th>Position</th></tr></thead><tbody><tr><td>1</td><td>Detector confidence collapses</td><td>CLAHE plus a separate lower <code>conf</code>. One threshold for both is not robustness.</td></tr><tr><td>2</td><td>Colour stops meaning anything</td><td>Re-ID on colour histograms fails silently on near-monochrome video; OSNet degrades more gracefully, and the report says identity matching is <strong>weaker after dark</strong>.</td></tr><tr><td>3</td><td>The VLM sees grain too</td><td>Qwen's judgement degrades on noisy dark frames just as the detector's does. Measure it on the same event set, day and night, and report both. <strong>A stated degradation beats an average that hides it.</strong></td></tr></tbody></table></div>
+<h3 id="14-observability">14. Observability</h3>
+<p>There is no metrics backend; there is a <strong>log line contract</strong>, which is enough and cannot break.</p>
+<p><strong>The <code>[0]</code>-<code>[7]</code> trace (§12.1) is treated as an interface</strong>, not as debug output:</p>
+<ul>
+<li>It is ordered, one line per stage, and each line carries the <em>counts</em> that stage transformed — so the reduction ladder of §4.4 is directly visible in a run, and a broken stage shows up as an implausible count rather than as a silent wrong answer.</li>
+<li><code>[0]</code> prints <strong>which path was taken</strong> — fitted baselines or per-video fallback. On the day you need to <em>see</em> that the fit was used, not assume it.</li>
+<li><code>[5b]</code> is the real-time claim as a number.</li>
+<li><code>[7]</code> is the number quoted to a judge: <em>"X FPS sustained, end to end, on this machine."</em></li>
+<li><code>track_seconds</code> against <code>wall_seconds</code> in the artifact gives bottleneck attribution without a profiler.</li>
+</ul>
+<p><strong>Auditability of a single alert.</strong> Given <code>alerts.json</code>, any alert can be traced backwards without a rerun: <code>facts</code> gives the arithmetic, <code>geo_score</code> the pre-fusion term, <code>score</code> and <code>ema</code> the fusion and suppression state, <code>label</code>/<code>why</code> the VLM's opinion, and <code>config</code> every threshold in force. That chain is FR-16, and it is what makes the output a claim rather than an assertion.</p>
+<p><strong>Health signals to watch during a run.</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Signal</th><th>Healthy</th><th>Suspicious</th><th>Likely cause</th></tr></thead><tbody><tr><td>tracklets / sampled frames</td><td>~40 / 1,800</td><td>hundreds</td><td><code>conf</code> too low, or ID churn (<code>track_buffer</code>)</td></tr><tr><td>candidates / tracklets</td><td>10-25%</td><td>~0%</td><td><code>candidate_floor</code> too high, or no fitted baseline</td></tr><tr><td></td><td></td><td>~100%</td><td>thresholds too loose, or a moving camera inflating speeds</td></tr><tr><td>alerts / candidates</td><td>~40%</td><td>~100%</td><td>suppression not engaging — check the hysteresis config is actually read</td></tr><tr><td>mean VLM ms</td><td>1,500-3,000</td><td>above 8,000</td><td><code>max_pixels</code> or <code>frames_per_event</code> too high; not quantised</td></tr><tr><td><code>geometric_only</code> mode</td><td>rare when the VLM is on</td><td>frequent</td><td>judge returning unparseable output — inspect <code>why</code></td></tr><tr><td>events judged (streaming)</td><td>grows sublinearly</td><td>equals candidates seen</td><td>memoisation not engaging</td></tr><tr><td>live tracklets (streaming)</td><td>stabilises</td><td>grows monotonically</td><td><code>retire_after</code> too long for the scene</td></tr></tbody></table></div>
+<h3 id="15-verification-and-evaluation-strategy">15. Verification and evaluation strategy</h3>
+<h4 id="15-1-test-levels">15.1 Test levels</h4>
+<div class="tablewrap"><table><thead><tr><th>Level</th><th>What it covers</th><th>How it runs without a GPU</th></tr></thead><tbody><tr><td><strong>Static</strong></td><td>Syntax and import integrity</td><td><code>python -c "import ast; ast.parse(open(f).read())"</code>. With no torch, no ultralytics and no dataset locally, <strong>static review of the diff is the check</strong> (CN-1)</td></tr><tr><td><strong>Unit — pure arithmetic</strong></td><td><code>dwell_seconds</code>, <code>speeds_px_s</code>, <code>clip_window</code>, <code>_point_in_poly</code>, <code>_speed_stats</code>, <code>_density_events</code>, <code>fuse_score</code>, <code>suppress</code>, <code>_suppress_one</code>, <code>novelty</code>, <code>frame_scores</code>, <code>ranges_to_labels</code>, <code>time_to_detection</code></td><td>All are model-free numpy over synthetic tracklets. <strong>This is the highest-value test surface in the repo and it needs no GPU</strong> — it is where the accuracy actually lives (§12.5)</td></tr><tr><td><strong>Contract</strong></td><td>Every row of the refusal table (§11.4)</td><td>Construct the refusing condition; assert <code>None</code>/error/empty-with-reason — never <code>0.0</code></td></tr><tr><td><strong>Smoke — end to end</strong></td><td>No stage crashes</td><td><code>make_sample.py</code> then <code>run.py --preset fast</code>. Synthetic boxes are not real objects and YOLO may detect nothing on them; <strong>this proves the wiring, not the accuracy</strong></td></tr><tr><td><strong>Mode agreement</strong></td><td>NFR-C10</td><td>Same clip, batch versus <code>--preset live</code>; compare alert sets and explain every difference</td></tr><tr><td><strong>Integration</strong></td><td>Real footage, real weights</td><td>Kaggle: <code>fit.py</code>, <code>run.py</code>, <code>demo.py</code>, <code>eval_run.py</code></td></tr><tr><td><strong>Regression</strong></td><td>Golden <code>alerts.json</code> for a fixed clip and config, timing fields excluded</td><td>Determinism check for NFR-C1</td></tr><tr><td><strong>Fault injection</strong></td><td>NFR-V4</td><td>Force a raise inside the judge; assert the run completes with that event <code>geometric_only</code></td></tr><tr><td><strong>Acceptance</strong></td><td>Human</td><td>§12.13's thirty-second test; the timed dry runs of §19.3</td></tr></tbody></table></div>
+<h4 id="15-2-the-four-conversion-traps-live-in-this-scaffold-right-now">15.2 The four conversion traps — live in this scaffold right now</h4>
+<p>These raise no exception. That is what makes them expensive, and why the smoke-test deliverable is <em>"the pipeline runs on one clip"</em>, never <em>"the code compiles"</em>.</p>
+<div class="tablewrap"><table><thead><tr><th>Trap</th><th>Symptom</th><th>Where it is handled</th></tr></thead><tbody><tr><td><strong>BGR vs RGB</strong></td><td>Nothing crashes; detection quality quietly drops and an hour goes to blaming the weights</td><td><code>fit.py</code> uses <code>f[:, :, ::-1]</code>, <code>vlm_judge</code>/<code>reid</code> use <code>cv2.cvtColor</code> — the same conversion, and <strong>both must stay</strong></td></tr><tr><td><strong>HWC vs CHW</strong></td><td>Shape error two frames deep in a stack trace</td><td>Handled inside the processors</td></tr><tr><td><strong>uint8 vs float</strong></td><td>A 0-255 array into a model expecting 0-1 gives garbage, silently</td><td>Handled by preprocessing transforms</td></tr><tr><td><strong>Missing batch dim</strong></td><td>Shape error</td><td><code>unsqueeze(0)</code> before single-image calls</td></tr></tbody></table></div>
+<h4 id="15-3-evaluation-protocol">15.3 Evaluation protocol</h4>
+<ol>
+<li><strong>Two runs, two conditions.</strong> Day clip with <code>--preset day</code>; night clip with <code>--preset night</code>. Two label files, two <code>eval_run.py</code> invocations, two tables. <strong>Both on the slide, always</strong>, even when night is worse (NFR-A2, P8).</li>
+<li><strong>Report the threshold with every P/R/F1</strong>, plus the full sweep — precision and recall are threshold-dependent and a single F1 hides the trade.</li>
+<li><strong>Report FP/hour</strong>, because that is what an operations team asks about.</li>
+<li><strong>Report time-to-detection</strong>, with misses as misses.</li>
+<li><strong>Report p50 and p95 latency</strong>, not the mean — the mean hides the tail a live operator experiences.</li>
+<li><strong>Refuse rather than pad.</strong> Single-class labels produce a refusal (NFR-A7).</li>
+<li><strong>Split by video, never by frame.</strong> Adjacent frames are near-duplicates, so frame-level shuffling hands back a fake 0.99 AUC — and a panel that stops trusting every other number you present. Synthetic night twins follow the same rule (NFR-A9).</li>
+<li><strong>Night mAP comes from a night-only split</strong>, built by <code>scripts/make_night_yaml.py</code>, not inferred from an average (NFR-A10).</li>
+</ol>
+<h4 id="15-4-datasets-and-their-roles">15.4 Datasets and their roles</h4>
+<div class="tablewrap"><table><thead><tr><th>Dataset</th><th>Role</th><th>Mandatory</th></tr></thead><tbody><tr><td><strong>VisDrone</strong></td><td>The training set — aerial, small, top-down. Gates the fine-tune. Also the re-ID practice ground.</td><td><strong>Yes</strong> — gates training</td></tr><tr><td><strong>CUHK Avenue</strong></td><td>Where the AUC comes from. Small, frame-level labels, fast to evaluate.</td><td><strong>Yes</strong> — gates metrics</td></tr><tr><td>UCF-Crime</td><td>128 h real surveillance, 13 anomaly classes, weak labels. Good for the forensic demo.</td><td>No</td></tr><tr><td>ShanghaiTech Campus</td><td>Multi-scene frame-level labels, the VAD standard. A second AUC if time allows.</td><td>No</td></tr><tr><td>UBnormal</td><td>Synthetic, pixel-level, with <strong>unseen anomaly types at test</strong> — a real generalisation check.</td><td>No</td></tr><tr><td>Drone-Anomaly</td><td>Small aerial VAD set — the closest published match to the actual task.</td><td>No</td></tr></tbody></table></div>
+<h3 id="16-traceability-matrix">16. Traceability matrix</h3>
+<p>Requirement to design to code to verification. This is the table a reviewer should use to check that nothing in §3 is aspirational.</p>
+<div class="tablewrap"><table><thead><tr><th>Req</th><th>Design</th><th>Code</th><th>Verification</th><th>Status</th></tr></thead><tbody><tr><td>FR-01</td><td>§4.4, §12.4</td><td><code>tracks.run_tracking</code>, <code>video.target_fps</code>, <code>video.max_seconds</code></td><td><code>[1-2]</code> line; a 2-hour file</td><td>Code complete</td></tr><tr><td>FR-02</td><td>§12.4</td><td><code>Tracklet</code>, <code>_accumulate</code></td><td><code>[1-2]</code> tracklet count</td><td>Code complete</td></tr><tr><td>FR-03</td><td>§12.3</td><td><code>fit.py</code></td><td><code>scene_fit.json.wall_seconds</code> at or under 300 s</td><td>Code complete, unrun</td></tr><tr><td>FR-04</td><td>§12.5, §13.1-13.4</td><td><code>events.detect_events</code></td><td>Unit tests, <code>[3]</code> line, all five kinds present</td><td>Code complete</td></tr><tr><td>FR-05</td><td>§12.6</td><td><code>openvocab.YoloWorldOpenVocab</code></td><td><code>[3b]</code> hit count changes with prompts</td><td>Code complete</td></tr><tr><td>FR-06</td><td>§13.6</td><td><code>retrieve.novelty</code>, <code>score_frame_novelty</code></td><td><code>facts.novelty</code> present when enabled</td><td>Code complete, off by default</td></tr><tr><td>FR-07</td><td>§12.7</td><td><code>vlm_judge.QwenJudge</code>, <code>_parse</code></td><td>JSON parse rate; <code>_parse</code> unit tests</td><td>Code complete</td></tr><tr><td>FR-08</td><td>§12.8, §13.5</td><td><code>fuse.fuse_score</code>, <code>fuse.suppress</code></td><td><code>[5]</code> before/after counts; state-machine unit tests</td><td>Code complete</td></tr><tr><td>FR-09</td><td>§13.7</td><td><code>reid.link_identities</code></td><td><code>[2b]</code> line; one link across a gap</td><td>Code complete</td></tr><tr><td>FR-10</td><td>§12.10</td><td><code>query.py</code>, <code>retrieve.search</code></td><td>A named query returns the right clip</td><td>Code complete</td></tr><tr><td>FR-11</td><td>§12.12</td><td><code>forensic.py</code>, <code>judge.summarize</code></td><td>Paragraph audited claim by claim</td><td>Code complete</td></tr><tr><td>FR-12</td><td>§12.11, §15.3</td><td><code>evaluate.*</code>, <code>eval_run.py</code></td><td>Day and night tables, sweep, TTD</td><td>Code complete, needs labels</td></tr><tr><td>FR-13</td><td>§12.13</td><td><code>demo.py</code></td><td>The thirty-second human test</td><td>Code complete</td></tr><tr><td>FR-14</td><td>§6</td><td><code>run.PRESETS</code></td><td>All six from a cold shell</td><td>Code complete</td></tr><tr><td>FR-15</td><td>§13.8</td><td><code>tracks._clahe_bgr</code>, <code>night.*</code></td><td>Four detection counts</td><td>Code complete</td></tr><tr><td>FR-16</td><td>§11.2, §14</td><td><code>CandidateEvent.facts</code> into <code>alerts.json</code> into <code>demo.html</code></td><td>Non-empty facts on every alert</td><td>Code complete</td></tr><tr><td>FR-17</td><td>§11.4</td><td>20 enumerated call sites</td><td>Refusal contract tests</td><td>Code complete</td></tr><tr><td>FR-18</td><td>§7.3</td><td>local weights</td><td>Wifi-off dry run</td><td>Procedural gate</td></tr><tr><td>FR-19</td><td>§12.16</td><td><code>pipeline/stream.py</code>, <code>--preset live</code></td><td><code>[5b]</code> first-alert line</td><td>Code complete, unrun</td></tr><tr><td>FR-20</td><td>§12.16</td><td><code>stream._retire</code>, <code>stream.retire_after</code></td><td>Live tracklet count stabilises</td><td>Code complete, unrun</td></tr><tr><td>FR-21</td><td>§12.14</td><td><code>zones.py</code></td><td>Polygons appear in <code>config.yaml</code></td><td>Code complete</td></tr><tr><td>NFR-F1</td><td>§9</td><td>whole pipeline</td><td><code>[7]</code> line</td><td>Unverified</td></tr><tr><td>NFR-F2</td><td>§9</td><td><code>vlm_latency_ms</code></td><td><code>report</code> p50/p95</td><td>Unverified</td></tr><tr><td>NFR-F3</td><td>§12.16</td><td><code>[5b]</code> line</td><td>First alert before run end</td><td>Unverified</td></tr><tr><td>NFR-F4</td><td>§12.3</td><td><code>--fit-seconds</code> cap</td><td><code>wall_seconds</code></td><td>Unverified</td></tr><tr><td>NFR-F5</td><td>§4.4</td><td><code>candidate_floor</code></td><td><code>len(vlm_latency_ms)/n_frames</code></td><td>Unverified</td></tr><tr><td>NFR-F6</td><td>§12.15</td><td><code>export_engine.py</code></td><td>bench line</td><td>Unverified</td></tr><tr><td>NFR-F7</td><td>§12.16</td><td><code>_retire</code></td><td>Long-clip run</td><td>Unverified</td></tr><tr><td>NFR-F8</td><td>§13.1</td><td><code>dwell_seconds</code></td><td>Complexity proof plus timing</td><td>Argued, untimed</td></tr><tr><td>NFR-F9</td><td>§12.16</td><td><code>self.judged</code> set</td><td>Events judged below candidates seen</td><td>Implemented</td></tr><tr><td>NFR-A1/A2</td><td>§15.3</td><td><code>eval_run.py</code></td><td>Two AUC tables</td><td>Unverified</td></tr><tr><td>NFR-A3/A4</td><td>§12.11</td><td><code>report</code>, <code>time_to_detection</code></td><td>FP/hour, TTD</td><td>Unverified</td></tr><tr><td>NFR-A5</td><td>§12.15</td><td><code>ab_weights.py</code></td><td>verdict lines</td><td>Unverified</td></tr><tr><td>NFR-A6</td><td>§12.15</td><td><code>sahi_recall.py</code></td><td>recall delta</td><td>Unverified</td></tr><tr><td>NFR-A7/A8</td><td>§11.4</td><td><code>evaluate</code>, <code>fuse</code></td><td>Refusal tests</td><td>Implemented</td></tr><tr><td>NFR-A9</td><td>§12.15</td><td>split manifest</td><td>Manifest review</td><td>Procedural</td></tr><tr><td>NFR-A10</td><td>§12.15</td><td><code>make_night_yaml.py</code></td><td>Night-only YAML exists</td><td>Implemented</td></tr><tr><td>NFR-V1/V2</td><td>§7.1</td><td>the Noop classes</td><td><code>--preset fast</code> on CPU</td><td>Implemented / unrun</td></tr><tr><td>NFR-V3</td><td>§7.3</td><td>—</td><td>Wifi-off run</td><td>Procedural gate</td></tr><tr><td>NFR-V4</td><td>§7.2 FM-1</td><td>—</td><td>Fault injection</td><td><strong>Gap G-A</strong></td></tr><tr><td>NFR-V5</td><td>§4.3</td><td>file-in / file-out</td><td>Rerun each consumer off one saved artifact</td><td>Implemented</td></tr><tr><td>NFR-V6</td><td>§12.15</td><td><code>save_period=5</code>, <code>--resume</code></td><td>Kill and resume a run</td><td>Implemented</td></tr><tr><td>NFR-V7</td><td>§7.2</td><td><code>_resolve_half</code>, <code>_quant_config</code></td><td>CPU run</td><td>Implemented</td></tr><tr><td>NFR-V8</td><td>§7.1 rung 5</td><td><code>run.py</code> <code>[0]</code></td><td>Run with no fit file</td><td>Implemented</td></tr><tr><td>NFR-C1</td><td>§8.1</td><td><code>temperature=0</code>, <code>.eval()</code>, union-find</td><td>Golden-file repeat run</td><td>Implemented</td></tr><tr><td>NFR-C2/C3</td><td>§6</td><td><code>apply_overrides</code></td><td>Code inspection</td><td>Implemented</td></tr><tr><td>NFR-C4</td><td>§11.5</td><td><code>src_fps</code> round-trip</td><td>Timestamp spot-check</td><td>Implemented</td></tr><tr><td>NFR-C5</td><td>§13.5</td><td><code>suppress</code>, <code>_suppress_one</code></td><td><code>[5]</code> counts</td><td>Implemented</td></tr><tr><td>NFR-C6</td><td>§12.10</td><td><code>_load_encoder(bank["encoder"])</code></td><td>Tag assertion</td><td>Implemented</td></tr><tr><td>NFR-C7</td><td>§15.2</td><td>both conversion sites</td><td>Visual check</td><td>Implemented</td></tr><tr><td>NFR-C8</td><td>§12.15</td><td><code>--seed</code> in both scripts</td><td>Repeat-run diff</td><td>Implemented</td></tr><tr><td>NFR-C9</td><td>§11.2</td><td><code>alerts.json.config</code></td><td>Artifact inspection</td><td>Implemented</td></tr><tr><td>NFR-C10</td><td>§15.1</td><td>two suppression implementations</td><td>Mode-agreement test</td><td><strong>Gap G-B</strong></td></tr></tbody></table></div>
+<h3 id="17-as-built-status-and-known-gaps">17. As-built status and known gaps</h3>
+<h4 id="17-1-execution-status-stated-plainly">17.1 Execution status — stated plainly</h4>
+<p><strong>Nothing in this repository has ever been executed against real data.</strong> There is no local GPU and no dataset, so "code complete" throughout §16 means <em>the code exists and reads correctly under static review</em> — it does not mean it has run. <strong>No trained weights exist</strong> (<code>weights/aerial_night/weights/best.pt</code> is absent), and <strong>the fine-tune has never been launched.</strong> That single gate is what everything else waits on: the A/B verdict, the FPS number, every AUC.</p>
+<p>Defects found by static review, fixed, and still unrun — the first things to re-check if the first real run fails:</p>
+<div class="tablewrap"><table><thead><tr><th>Area</th><th>Defect</th><th>Fix</th></tr></thead><tbody><tr><td>Correctness</td><td><code>out/</code> was written into before being created</td><td><code>run.py</code> and <code>fit.py</code> create it first</td></tr><tr><td>Correctness</td><td><code>NoopOpenVocab.detect</code> took a required <code>prompts</code> arg <code>run.py</code> never passed</td><td>Signature made <code>prompts=None</code> — it was a <code>TypeError</code> on the first candidate with <code>backend: none</code></td></tr><tr><td>Correctness</td><td><code>retrieve.search</code> divided <strong>source</strong> frame numbers by the <strong>sampled</strong> fps</td><td><code>fit.py</code> records <code>src_fps</code>; retrieval reads it (NFR-C4)</td></tr><tr><td>Correctness</td><td><code>--fit-seconds</code> was dead config</td><td>Now caps <code>video.max_seconds</code></td></tr><tr><td>Correctness</td><td>Hysteresis did not exist despite the claim — only <code>raise_threshold</code> was read</td><td><code>clear_threshold</code> and <code>ema_alpha</code> now drive a real raise/clear state machine</td></tr><tr><td>Correctness</td><td>Events carried the whole tracklet lifetime</td><td>Clipped to <code>clip_seconds</code> around the peak</td></tr><tr><td>Correctness</td><td><code>loiter</code> and <code>abandoned</code> double-fired</td><td><code>abandoned</code> wins, non-person classes only</td></tr><tr><td>Correctness</td><td>VLM latency was measured and discarded</td><td>Persisted in <code>alerts.json</code>, read by <code>eval_run.py</code></td></tr><tr><td>Correctness</td><td><code>extract_frames(k=1)</code> returned <code>t_start</code>, the least informative frame</td><td>Returns the middle frame</td></tr><tr><td>Correctness</td><td><code>smolvlm</code> backend raised <code>ValueError</code></td><td>Implemented, sharing the judge body</td></tr><tr><td>Correctness</td><td><code>link_identities</code> used chained assignment</td><td>Union-find, same-class only</td></tr><tr><td>Correctness</td><td><code>identity</code> was never <code>-1</code>, so "linked" was indistinguishable from "unlinked"</td><td><code>-1</code> now means no claim</td></tr><tr><td>Correctness</td><td><code>sweep()</code> returned rows containing only a threshold on single-class labels</td><td>Refuses as a whole</td></tr><tr><td>Correctness</td><td><code>half: true</code> crashed on CPU</td><td><code>_resolve_half</code> decides once</td></tr><tr><td>Performance</td><td>No quantisation</td><td><code>vlm.load_4bit</code>, NF4 double-quant</td></tr><tr><td>Performance</td><td>No <code>inference_mode</code> on the Qwen calls</td><td>Added</td></tr><tr><td>Performance</td><td><code>dwell_seconds</code> was O(n²) and called twice per tracklet</td><td>O(n) monotonic deques</td></tr><tr><td>Performance</td><td><code>score_frame_novelty</code> reloaded SigLIP per event</td><td>Cached, on GPU</td></tr><tr><td>Performance</td><td><code>crop_at</code> opened a <code>VideoCapture</code> per crop</td><td>One per run</td></tr><tr><td>Performance</td><td>Three captures per event in the judge loop</td><td>One</td></tr><tr><td>Performance</td><td>Open-vocab looped a no-op when disabled</td><td>Constructed only when enabled</td></tr><tr><td>Architecture</td><td>Batch-only: no alerts until the file ended, unbounded <code>tracks</code></td><td><code>pipeline/stream.py</code> plus <code>--preset live</code>, with tracklet retirement</td></tr><tr><td>Dependencies</td><td><code>requirements.txt</code> out of sync</td><td><code>torchreid</code> added; <code>sahi</code>/<code>qwen-vl-utils</code> commented until something imports them</td></tr></tbody></table></div>
+<h4 id="17-2-open-design-gaps">17.2 Open design gaps</h4>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Gap</th><th>Requirement affected</th><th>Decision</th></tr></thead><tbody><tr><td><strong>G-A</strong></td><td><strong>No exception boundary around the per-event stages</strong> in <code>run.py</code> or <code>stream.py</code>. A VLM OOM or a corrupt frame aborts the whole run instead of degrading that one event to <code>geometric_only</code>.</td><td>NFR-V4, FM-1</td><td><strong>Must fix before the arena.</strong> The degradation ladder is designed for it and the noop path already returns the right shape; only the per-event <code>try/except</code> is missing.</td></tr><tr><td><strong>G-B</strong></td><td><strong>The suppression state machine is implemented twice</strong> — <code>fuse.suppress</code> (batch, whole list) and <code>stream._suppress_one</code> (streaming, one event). Consistent by inspection, not by construction.</td><td>NFR-C10</td><td><strong>Accepted for the arena, with a test.</strong> The mode-agreement test (§15.1) is the guard; the clean fix is to extract one shared state object both call.</td></tr><tr><td><strong>G-C</strong></td><td><strong>Streaming mode does not run re-ID or open-vocab.</strong> The window loop calls events, judge and fuse only.</td><td>FR-05, FR-09 in live mode</td><td><strong>Accepted and disclosed.</strong> Both are batch-mode capabilities today; <code>--preset live</code> trades them for latency. Say which mode a demo is in.</td></tr><tr><td><strong>G-D</strong></td><td><strong>Open-vocab can only see geometry-flagged windows.</strong> A bag that is not in <code>detector.classes</code> never becomes a track, so it never becomes a candidate, so YOLO-World is never pointed at it.</td><td>FR-05</td><td><strong>Structural. Name it, don't hide it.</strong> Mitigation today: include the relevant classes in <code>detector.classes</code>. Structural fix: a periodic open-vocab sweep independent of the candidate list.</td></tr><tr><td><strong>G-E</strong></td><td><code>detector.sahi.*</code> exists in <code>config.yaml</code> but <code>run_tracking</code> never reads it. Tiling is reachable only through <code>scripts/sahi_recall.py</code>.</td><td>NFR-A6</td><td><strong>Accepted, deliberately.</strong> SAHI returns detections without track IDs and Ultralytics' tracker is coupled to <code>model.track()</code>; wiring it means hand-rolling association. The keys should be marked measurement-only so they are not read as an active knob.</td></tr><tr><td><strong>G-F</strong></td><td><code>abandoned</code> has no true owner <em>association</em> — only a proximity hint (<code>owner_hint</code>) built from one distance test at the object's first frame. It will miss a hand-off outside the 2 s / 80 px window and can point at a passer-by.</td><td>FR-04</td><td><strong>Accepted, and the naming carries the caveat</strong>: <code>possible_owner_track_id</code> with its <code>distance_px</code>, so the reader judges it. Real association needs the hand-off event, which is not implemented.</td></tr><tr><td><strong>G-G</strong></td><td><code>video.clip_overlap</code> is config that nothing reads.</td><td>NFR-C2</td><td>Remove it, or implement overlapping windows. <strong>Unread config is a correctness risk</strong> — see §13.5's historical note.</td></tr><tr><td><strong>G-H</strong></td><td>Pixel-space thresholds are altitude-dependent; there is no stabilisation for platform motion.</td><td>NFR-A1, AS-2</td><td><strong>Named, not fixed</strong> (§18 R-04). Gate speed on hovering, or add sparse optical flow, if time remains.</td></tr><tr><td><strong>G-I</strong></td><td><code>fuse.w_novelty = 0.0</code> by default, so FR-06 is wired but inactive.</td><td>FR-06</td><td>Deliberate: enable only after the bank is validated on real footage. <strong>A wrong novelty term is worse than an absent one.</strong></td></tr><tr><td><strong>G-J</strong></td><td>Grounding DINO fallback for open-vocab is documented but not implemented.</td><td>FR-05 resilience</td><td>Accepted. SmolVLM2 is the fallback that <em>is</em> implemented, on the more critical stage.</td></tr></tbody></table></div>
+<h3 id="18-risk-register">18. Risk register</h3>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th><th>Trigger to act</th></tr></thead><tbody><tr><td><strong>R-01</strong></td><td>The overnight fine-tune does not finish, or does not beat stock</td><td>Medium</td><td>Medium</td><td>Epoch-1 extrapolation x1.15 before sleeping; <code>save_period</code> plus <code>--resume</code>; <code>ab_weights.py</code> decides on measured mAP, and <strong>stock is kept if it wins, and said so on the slide</strong></td><td>Epoch-1 wall-clock overruns the alarm</td></tr><tr><td><strong>R-02</strong></td><td>Night footage collapses detection</td><td>Medium</td><td><strong>High</strong> — it is the stated differentiator</td><td>CLAHE on L plus a separate lower <code>conf</code>; 40% synthetic night in training; four measured detection counts</td><td>Night detection count below 50% of day</td></tr><tr><td><strong>R-03</strong></td><td>The VLM's own quality degrades on noisy dark frames</td><td>Medium</td><td>Medium</td><td>Measure it: same event set, day and night, both numbers reported. <strong>A stated degradation beats an average that hides it</strong></td><td>Night verdict agreement drops materially</td></tr><tr><td><strong>R-04</strong></td><td>Camera motion or altitude change invalidates pixel-space thresholds</td><td><strong>High</strong></td><td>Medium</td><td>Gate speed on hovering, or stabilise with sparse optical flow; <strong>name the limitation in Q&amp;A</strong></td><td>Speed events fire during camera pans</td></tr><tr><td><strong>R-05</strong></td><td>No frame-level labels for the event's own footage</td><td>High</td><td>Medium</td><td>CUHK Avenue supplies the AUC; <code>eval_run.py</code> takes a hand-built ranges file for anything else</td><td>The metrics slide has no number by F5</td></tr><tr><td><strong>R-06</strong></td><td>Venue wifi unusable, or a weight not cached</td><td>Medium</td><td><strong>High</strong></td><td>Every weight local before arrival; <strong>the wifi-off dry run is a gate</strong></td><td>Any run reaches for a download</td></tr><tr><td><strong>R-07</strong></td><td>A silent conversion bug (BGR/RGB, units) degrades quality with no error</td><td>Medium</td><td>High</td><td>§11.5 unit table; §15.2 trap table; both conversion sites kept and reviewed together</td><td>Detection quality inexplicably poor</td></tr><tr><td><strong>R-08</strong></td><td>A single stage failure aborts a demo run</td><td>Medium</td><td><strong>High</strong></td><td>G-A: per-event exception boundary to <code>geometric_only</code></td><td>Any run aborts mid-loop</td></tr><tr><td><strong>R-09</strong></td><td>Batch and streaming disagree on the same clip</td><td>Medium</td><td>Medium</td><td>G-B: the mode-agreement test; explain every difference before the demo</td><td>Alert sets differ unexplained</td></tr><tr><td><strong>R-10</strong></td><td>Suppression config unread, causing alert spam</td><td>Low (fixed)</td><td>High</td><td><code>suppress</code> now reads <code>ema_alpha</code> and <code>clear_threshold</code>; assert alerts below candidates in the smoke test</td><td><code>[5]</code> shows zero suppression</td></tr><tr><td><strong>R-11</strong></td><td>Unrehearsed demo fails in public</td><td>Medium</td><td><strong>High</strong></td><td>Two timed dry runs on unseen clips are <strong>non-negotiable</strong> (§19.3). <strong>Nothing built after 10 PM survives contact with a judge</strong></td><td>Either dry run is skipped</td></tr><tr><td><strong>R-12</strong></td><td>A half-wired optional upgrade breaks the main path</td><td>Medium</td><td>High</td><td>F7 is one-of-three and <strong>deleted if not working by its deadline</strong> — a half-wired upgrade is worse than none</td><td>Upgrade not working at cutoff</td></tr><tr><td><strong>R-13</strong></td><td>Frame-level split leakage produces a fake AUC</td><td>Low</td><td><strong>High</strong> — it destroys credibility</td><td>Split by video; night twins on the same side; state the rule before being asked</td><td>Any split done by frame</td></tr><tr><td><strong>R-14</strong></td><td>Memory exhaustion on hours of footage in batch mode</td><td>Medium</td><td>Medium</td><td>Use <code>--preset live</code> for long-form; retirement bounds RAM</td><td>Live tracklet count grows monotonically</td></tr></tbody></table></div>
+<hr/>
+<h2 class="part" id="part-iv-operations">Part IV — Operations</h2>
+<h3 id="19-runbooks-and-reference">19. Runbooks and reference</h3>
+<h4 id="19-1-knob-reference-which-way-and-why">19.1 Knob reference — which way, and why</h4>
+<p>The question a reviewer asks is never <em>"what model?"</em>, it is <em>"what happens if you turn this up?"</em></p>
+<div class="tablewrap"><table><thead><tr><th>Stage</th><th>Knob</th><th>Direction and reason</th></tr></thead><tbody><tr><td>Training</td><td><code>--preset</code></td><td><code>overnight</code> if the GPU is yours all night; <code>kaggle</code> if borrowed; <code>fast</code> if the launch slipped</td></tr><tr><td>Training</td><td><code>freeze</code></td><td>0 overnight — there are hours for a full fine-tune. <code>freeze=10</code> only when time-boxed</td></tr><tr><td>Training</td><td><code>hsv_v</code></td><td>Up to 0.65. Brightness jitter is cheap night robustness on top of the synthetic dark frames</td></tr><tr><td>Training</td><td><code>mosaic</code> / <code>close_mosaic</code></td><td>Mosaic helps small objects a lot; off for the last 8 epochs so the model sees real layouts</td></tr><tr><td>Training</td><td>night <code>--fraction</code></td><td>0.4. Too high and it forgets daylight; too low and night never registers</td></tr><tr><td>Training</td><td><code>--base</code></td><td>Start from a VisDrone-pretrained checkpoint if a credible one exists: two-stage beats one stage from COCO, for less compute</td></tr><tr><td>Sampling</td><td><code>video.target_fps</code></td><td>Down 30 to 3 is 10x cheaper and loses almost nothing for loitering. Raise only for falls and collisions</td></tr><tr><td>Sampling</td><td><code>clip_seconds</code></td><td>The window must be <strong>longer than the event you claim to detect</strong></td></tr><tr><td>Streaming</td><td><code>stream.window_seconds</code></td><td>Down for lower alert latency, up for more history per decision. This is the latency/context trade</td></tr><tr><td>Streaming</td><td><code>stream.retire_after</code></td><td>Up to survive longer occlusions, down to bound RAM harder</td></tr><tr><td>Detector</td><td><code>weights</code></td><td>Stock against the fine-tune — <strong>decided by measured mAP in the A/B, not by sentiment</strong></td></tr><tr><td>Detector</td><td><code>imgsz</code></td><td>Up to <strong>1280 for aerial.</strong> A top-down person is ~15 px after a 640 resize, and vanishes</td></tr><tr><td>Detector</td><td><code>conf</code></td><td>Down to 0.20-0.25 by day, <strong>lower again at night.</strong> Recall here; precision later in the event layer</td></tr><tr><td>Detector</td><td><code>iou</code>, <code>classes</code></td><td>NMS overlap — lower in crowds. Fewer classes, fewer nonsense tracks</td></tr><tr><td>Open-vocab</td><td>the prompt list</td><td><strong>The real tuning surface on the day.</strong> <code>"person climbing fence"</code> beats <code>"person"</code>; short noun phrases beat sentences</td></tr><tr><td>Night</td><td><code>clahe_clip</code>, <code>clahe_grid</code></td><td>Up means more contrast <strong>and</strong> more amplified noise. Find the sweet spot and show it</td></tr><tr><td>SAHI</td><td>slice / overlap</td><td>640 at 0.2. Big recall jump on drone footage, big FPS cost</td></tr><tr><td>Tracker</td><td><code>track_high_thresh</code> / <code>low_thresh</code></td><td>The two-stage association at the core of ByteTrack — what it does with the low-confidence boxes everyone else throws away</td></tr><tr><td>Tracker</td><td><code>new_track_thresh</code></td><td>Up means fewer ghost tracks</td></tr><tr><td>Tracker</td><td><code>track_buffer</code></td><td>Up means more frames a track survives occlusion. Raise it when IDs churn</td></tr><tr><td>Tracker</td><td><code>botsort</code> vs <code>bytetrack</code></td><td>BoT-SORT adds re-ID: better through occlusion, slower. For L2 it is worth the cost</td></tr><tr><td>Re-ID</td><td><code>cosine_threshold</code></td><td>Too low merges strangers; too high splits one person into three. <strong>Report both directions</strong></td></tr><tr><td>Events</td><td><code>loiter_seconds</code> / <code>loiter_radius_px</code></td><td>The radius is in <strong>pixels</strong>, so it is altitude-dependent on a drone. Say that out loud</td></tr><tr><td>Events</td><td><code>speed_z_threshold</code></td><td>z against the baseline <code>fit.py</code> measured on <strong>their</strong> video — never a global constant</td></tr><tr><td>Events</td><td><code>person_classes</code></td><td>Must match the checkpoint's class map, not COCO's. Two human classes on VisDrone; get this wrong and people become abandoned objects</td></tr><tr><td>Events</td><td><code>min_track_frames</code></td><td>Refuse to judge blips</td></tr><tr><td>Events</td><td><code>candidate_floor</code></td><td>The gate that sets the VLM bill. Raise it and the judge sleeps</td></tr><tr><td>VLM</td><td><code>max_pixels</code></td><td>Down: halve it, roughly halve the latency. <strong>Your number-one lever</strong></td></tr><tr><td>VLM</td><td><code>frames_per_event</code></td><td>4-8. Below 4 you lose temporality; above 8 you pay for nothing</td></tr><tr><td>VLM</td><td><code>temperature = 0</code></td><td>A judge that changes its mind between runs is unusable</td></tr><tr><td>Fusion</td><td><code>w_geometric</code> / <code>w_vlm</code></td><td>Geometry is measured, the VLM is opinion. <strong>Don't let opinion dominate</strong></td></tr><tr><td>Fusion</td><td><code>raise</code> / <code>clear</code></td><td>Hysteresis — raise high, clear low. This is what stops alert flicker</td></tr><tr><td>Fusion</td><td><code>cooldown_seconds</code></td><td>Per track ID. Stops forty alerts for one loiterer</td></tr><tr><td>Fusion</td><td><code>w_novelty</code></td><td>0 until the bank is validated. A wrong novelty term is worse than an absent one</td></tr></tbody></table></div>
+<h4 id="19-2-kaggle-runbook">19.2 Kaggle runbook</h4>
+<div class="codewrap"><span class="codelang">python</span><pre class="code"><code># Cell 1 - get the code in (re-clone every session; local edits do not exist here)
+!git clone https://github.com/&lt;user&gt;/flytbase-prep.git
+%cd flytbase-prep
+
+# Cell 2 - install (Kaggle already has torch, opencv, numpy, sklearn)
+!pip install -q ultralytics transformers accelerate open_clip_torch
+
+# Cell 3 - confirm the GPU before anything else
+!nvidia-smi</code></pre></div>
+<div class="codewrap"><span class="codelang">bash</span><pre class="code"><code># 1. Fetch VisDrone (auto-downloads on the first train call), then darken 40%
+python -c "from ultralytics import YOLO; YOLO('yolo11n.pt').train(data='VisDrone.yaml', epochs=0)"
+python train/make_night.py --images .../VisDrone/images/train \
+                           --labels .../VisDrone/labels/train --fraction 0.4
+#    -&gt; LOOK AT TEN OUTPUT IMAGES. Too dark is a real failure mode.
+
+# 2. Build the night-only val split so F0 can report night separately
+python scripts/make_night_yaml.py --images .../VisDrone/images/train \
+                                  --out VisDroneNight.yaml
+
+# 3. Launch the fine-tune, then check the extrapolation before walking away
+python train/train_aerial.py --preset kaggle --name aerial_night
+#    -&gt; epoch-1 wall x epochs x 1.15 must fit the session limit,
+#       or kill it and drop a preset. --resume restarts from last.pt.
+
+# 4. A/B before trusting anything
+python scripts/ab_weights.py --tuned weights/aerial_night/weights/best.pt \
+       --stock yolo11s.pt --data VisDrone.yaml --night-data VisDroneNight.yaml
+
+# 5. The real-time and recall numbers
+python scripts/export_engine.py --weights weights/aerial_night/weights/best.pt
+python scripts/sahi_recall.py   --weights weights/aerial_night/weights/best.pt \
+                                --video data/sample.mp4
+
+# 6. Fit, run, show, measure
+python fit.py  --video data/avenue_01.avi --fit-seconds 120
+python run.py  --video data/avenue_01.avi --preset day --out out/alerts_day.json
+python demo.py --alerts out/alerts_day.json --out out/demo.html
+python eval_run.py --alerts out/alerts_day.json --labels labels/avenue_01.json --tag day</code></pre></div>
+<p><strong>Rules of this runtime.</strong> Sessions die — anything to keep goes to <code>/kaggle/working/</code> and is <strong>downloaded before the session ends</strong>. GPU quota is weekly, not per-session: do not burn it on a run you have not extrapolated. <strong>Commit and push before starting a session.</strong> Download <code>best.pt</code> <em>and</em> <code>last.pt</code>.</p>
+<h4 id="19-3-event-day-runbook-the-first-thirty-minutes">19.3 Event-day runbook — the first thirty minutes</h4>
+<p>Retrieval, not revision — and definitely not new material.</p>
+<div class="tablewrap"><table><thead><tr><th>Clock</th><th>Action</th></tr></thead><tbody><tr><td>0-10 m</td><td>Sit through the State-of-the-Art session. <strong>Read the real level definitions</strong> and re-plan if they differ from the inference in §1.1</td></tr><tr><td>10-12 m</td><td>Point <code>config.yaml</code> at their video. Watch 60 s at speed: day or night, crowded or sparse, hovering or moving</td></tr><tr><td>12-17 m</td><td><code>python fit.py --video theirs.mp4</code> — speed and density baselines, normal bank, retrieval index</td></tr><tr><td>17-20 m</td><td><code>python zones.py --video theirs.mp4</code> — click two or three polygons. One minute of work, disproportionate payoff</td></tr><tr><td>20-30 m</td><td><code>python run.py --video theirs.mp4 --preset day</code> — first alerts, first FPS, first eval table. <strong>L1 cleared</strong></td></tr><tr><td>30 m+</td><td>Climb: re-ID for L2, retrieval and forensics for L3, <code>--preset live</code> for the real-time claim, optional upgrades after that</td></tr></tbody></table></div>
+<p><strong>Pre-arena gates, in order, none skippable:</strong></p>
+<ol>
+<li>All six presets run from a cold shell, one line each.</li>
+<li><strong>Dry run one:</strong> an unseen clip, start to finish, nothing touched. <strong>Time it</strong> — that number is the honest estimate for the arena's first thirty minutes.</li>
+<li><strong>Dry run two:</strong> an unseen <em>night</em> clip in twenty minutes, changing <code>conf</code>, a prompt and a threshold <strong>live while narrating each one.</strong> This is the skill the arena actually tests.</li>
+<li><strong>Final dry run with the network off.</strong> The only way to prove nothing silently reaches for a download.</li>
+<li>Five slides: problem, architecture, the numbers, the honest limitations, the one sentence. Say the two-minute pitch out loud, timed, once.</li>
+</ol>
+<h4 id="19-4-the-four-things-not-to-do">19.4 The four things not to do</h4>
+<div class="tablewrap"><table><thead><tr><th>Don't</th><th>Because</th></tr></thead><tbody><tr><td>Fine-tune the VLM</td><td>No labels, no measurable gain, and it competes for the detector's GPU. <strong>The brief asks an architectural question, not a leaderboard one</strong></td></tr><tr><td>Train an anomaly model on someone else's city</td><td><strong>Normality is precisely the thing that will not transfer</strong></td></tr><tr><td>Chase YOLO versions</td><td><code>imgsz=1280</code> plus tiling beats any version bump on aerial footage. YOLO-World rides a YOLOv8 backbone regardless, so a newer YOLO is not a newer open-vocabulary model</td></tr><tr><td>Skip the dry runs</td><td>An unrehearsed demo fails in public</td></tr></tbody></table></div>
+<h4 id="19-5-the-three-claims-to-lead-with">19.5 The three claims to lead with</h4>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Claim</th><th>The number behind it</th></tr></thead><tbody><tr><td><strong>1 · architecture</strong></td><td><em>A small VLM can't watch every frame, so I made it the judge at the end of a cheap cascade — eight calls instead of eighteen thousand.</em></td><td>0.27% of frames reach the VLM (§4.4)</td></tr><tr><td><strong>2 · rigour</strong></td><td><em>Day AUC and night AUC, reported separately.</em> They supplied night footage deliberately, and almost nobody else will split the number.</td><td>Two tables, §15.3</td></tr><tr><td><strong>3 · deployability</strong></td><td><em>Five minutes to adapt to a scene we had never seen</em> — and the reason no anomaly model needed training at all.</td><td><code>scene_fit.json.wall_seconds</code> (§12.3)</td></tr></tbody></table></div>
+<h4 id="19-6-glossary">19.6 Glossary</h4>
+<div class="tablewrap"><table><thead><tr><th>Term</th><th>Meaning here</th></tr></thead><tbody><tr><td><strong>Tracklet</strong></td><td>One track ID's full observation series: timestamps, centres, sizes, confidences</td></tr><tr><td><strong>Candidate event</strong></td><td>A geometrically flagged window that passed <code>candidate_floor</code> and is worth a VLM call</td></tr><tr><td><strong>Alert</strong></td><td>A candidate that survived fusion, hysteresis and cooldown — the operator-visible output</td></tr><tr><td><strong>Fitting</strong></td><td>Measuring scene-specific baselines by arithmetic on the scene's own footage. Not training</td></tr><tr><td><strong>Normal bank</strong></td><td>L2-normalised embeddings of quiet frames. Dual-use: novelty scoring <strong>and</strong> text retrieval</td></tr><tr><td><strong>Novelty</strong></td><td><code>1 - mean top-k cosine</code> to the normal bank. High means unlike anything observed as quiet</td></tr><tr><td><strong><code>geometric_only</code></strong></td><td>The score mode when no VLM opinion exists — the label is part of the output, so no reader mistakes it for a fused score</td></tr><tr><td><strong>Refusal</strong></td><td>A deliberate <code>None</code>/error where data is insufficient. A design output, not a missing feature</td></tr><tr><td><strong>Dwell</strong></td><td>Longest run inside a box of side <code>2r</code>, in seconds</td></tr><tr><td><strong>Hysteresis</strong></td><td>Asymmetric raise/clear thresholds with a latched state; what stops alert flicker</td></tr><tr><td><strong><code>eff_fps</code></strong></td><td>Effective sampled frame rate, <code>src_fps / vid_stride</code>. The time base of every tracklet timestamp</td></tr><tr><td><strong>Retirement</strong></td><td>Dropping tracklets idle beyond <code>stream.retire_after</code>, to bound memory over hours</td></tr></tbody></table></div>
+<hr/>
+<h3 id="the-one-sentence">The one sentence</h3>
+<blockquote><p>Everything trainable that is domain-general was trained before I arrived. Everything scene-specific is fitted on your footage in five minutes, because it is arithmetic rather than gradient descent. And the class list is text, so I can change what counts as an anomaly while you watch.</p></blockquote></main>
+</div>
+
+<footer>
+  <span>docs/DESIGN.md</span>
+  <span>flytbase-prep</span>
+  <span>Every NFR target is a budget, not a measurement</span>
+</footer>
