@@ -58,9 +58,12 @@ def main():
               f"from the source pool, not re-darkened")
 
     pick = random.sample(imgs, min(int(len(imgs) * a.fraction), len(imgs)))
+    print(f"[night] darkening {len(pick)} of {len(imgs)} images "
+          f"(CPU-only - no GPU used in this step)")
     lab_dir = Path(a.labels)
     made = 0
-    for p in pick:
+    t0 = time.time()
+    for idx, p in enumerate(pick, 1):
         src_lab = lab_dir / (p.stem + ".txt")
         if not src_lab.exists():
             continue                        # no label, no synthetic twin
@@ -71,7 +74,13 @@ def main():
         cv2.imwrite(str(out_img), to_night(img, rng))
         shutil.copyfile(src_lab, lab_dir / (p.stem + "_night.txt"))
         made += 1
-    print(f"[night] {made} synthetic night images written beside {len(imgs)} originals")
+        # progress every 200 images or every 10s, whichever comes first -
+        # otherwise this loop is silent for minutes and looks hung
+        if idx % 200 == 0 or idx == len(pick):
+            rate = idx / max(time.time() - t0, 1e-6)
+            print(f"[night] {idx}/{len(pick)} ({rate:.0f} img/s)")
+    print(f"[night] {made} synthetic night images written beside {len(imgs)} originals "
+          f"in {time.time() - t0:.1f}s")
     print("[night] geometry is unchanged, so labels copy across verbatim")
 
 

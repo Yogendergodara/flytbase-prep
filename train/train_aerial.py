@@ -91,6 +91,10 @@ def main():
                          "Kaggle session dying at epoch 30 of 40 should not "
                          "cost you the whole night")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--device", default=None,
+                    help="'0' for one GPU, '0,1' for both T4s (DDP - Ultralytics "
+                         "splits the batch across them, not a clean 2x speedup). "
+                         "Default: Ultralytics auto-picks GPU 0.")
     a = ap.parse_args()
 
     from ultralytics import YOLO
@@ -120,6 +124,7 @@ def main():
 
     YOLO(base).train(
         data=a.data, imgsz=imgsz, epochs=epochs, batch=batch,
+        device=a.device,
         freeze=freeze or None, seed=a.seed, save_period=5, lr0=lr0,
         # augmentation aimed at aerial + low light, not at generic photos
         hsv_h=0.010, hsv_s=0.5, hsv_v=0.65,   # hsv_v high: brightness robustness
