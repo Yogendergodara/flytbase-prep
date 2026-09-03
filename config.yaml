@@ -1,0 +1,62 @@
+video:
+  path: data/sample.mp4
+  target_fps: 3            # KNOB: 30fps -> 3fps = 10x less compute
+  clip_seconds: 4          # temporal window handed to the VLM
+  clip_overlap: 0.5
+
+detector:
+  weights: yolo11n.pt      # KNOB: n/s/m/l - accuracy vs FPS
+  imgsz: 960               # KNOB: 1280+ for small aerial objects
+  conf: 0.25               # KNOB: low = more recall, more FP downstream
+  iou: 0.5                 # NMS IoU
+  classes: [0, 1, 2, 3, 5, 7]   # person, bicycle, car, motorcycle, bus, truck
+  max_det: 300
+  half: true
+  device: null             # null = auto, 0 = cuda:0, "cpu"
+  tracker: bytetrack.yaml  # KNOB: botsort.yaml adds ReID (fewer ID switches)
+
+events:
+  min_track_frames: 6      # refuse to judge a 2-frame blip
+  loiter_seconds: 12.0     # KNOB
+  loiter_radius_px: 45     # KNOB: dwell = stayed inside this radius
+  speed_z_threshold: 2.5   # KNOB: per-class speed z-score
+  abandoned_seconds: 20.0
+  restricted_zones: []     # [[[x,y],[x,y],[x,y],[x,y]]] pixel polygons
+  candidate_floor: 0.35    # below this, never wake the VLM
+
+open_vocab:
+  backend: none            # none | yoloworld
+  weights: yolov8s-world.pt
+  prompts:                 # KNOB: this list is your real tuning surface
+    - person climbing fence
+    - abandoned bag
+    - vehicle on footpath
+  conf: 0.15
+  frames_per_event: 3
+
+reid:
+  backend: none            # none | osnet
+  model_name: osnet_x1_0
+  weights: ""              # blank = torchreid's own pretrained download
+  crops_per_track: 3       # refuse below this many usable crops
+  cosine_threshold: 0.7    # KNOB: too low merges strangers, too high splits one person into many
+
+retrieve:
+  top_k: 5
+
+vlm:
+  backend: none            # none | qwen | smolvlm
+  model_id: Qwen/Qwen2.5-VL-3B-Instruct
+  frames_per_event: 6      # KNOB: biggest latency lever after max_pixels
+  max_pixels: 401408       # 512*28*28. KNOB: halve it, halve the latency
+  max_new_tokens: 128
+  temperature: 0.0         # deterministic judgements
+
+fuse:
+  w_geometric: 0.45
+  w_vlm: 0.55
+  raise_threshold: 0.62    # hysteresis: raise high...
+  clear_threshold: 0.45    # ...clear low. Kills flicker.
+  min_event_seconds: 1.5
+  cooldown_seconds: 30     # per track id - kills duplicate alerts
+  ema_alpha: 0.4

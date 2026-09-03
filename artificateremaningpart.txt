@@ -1,0 +1,151 @@
+Implementation plan · FlytBase Visual Intelligence Hackathon
+
+Ten-Hour Flight Plan
+Twenty-two working hours across two days, with a full night between them. The night is the unlock: the detector trains while you sleep, so Friday starts with weights instead of waiting for them.
+
+Thursday
+10 hours
+Overnight
+Training, free
+Friday
+12 hours
+Saturday
+The arena
+The brief, as published
+
+"Can a small VLM detect anomalies in live drone video, in real time?"
+
+One challenge, three levels, self-paced · individual arena
+
+Format
+Individual arena. Three levels, self-paced. A ladder, not a team pitch.
+Data you are given
+Real urban drone footage, including night flights, plus benchmark datasets.
+Explicitly allowed
+Fine-tune, distill, build a multi-stage pipeline, implement recent research, or your own approach.
+Scope
+Open-world understanding, anomaly detection, retrieval, tracking, re-identification, forensic reasoning.
+Footage type
+Long-form CCTV and drone video — hours, not clips.
+Day shape
+State-of-the-Art session first, build all day, selected demos at the end.
+Venue
+FlytBase HQ, Pune. ~70 of ~300 registrants in the room, plus online.
+Directions that placed
+Tracking, re-ID, SAM masking, map grounding, congestion analysis.
+The whole plan, in one page
+
+What we are doing
+Everything below this section is detail. If you read nothing else, read this.
+
+Tonight · next 2 hours
+
+Four things, in order
+Before any of Thursday's blocks
+
+1
+nvidia-smi. This decides everything. No GPU → open Kaggle and confirm the quota now.
+2
+Start four downloads: VisDrone, CUHK Avenue, YOLO-World-L, Qwen2.5-VL-3B.
+3
+Hunt a VisDrone-pretrained YOLO checkpoint on HF Hub or GitHub. If a credible one exists, it becomes your training base — someone else already paid for the aerial adaptation.
+4
+Get run.py to execute once. It has never run. Find the broken import now, not at 2am.
+Then
+
+Two days, four phases
+Detail in the sections below
+
+Thu
+Wire the pipeline with only the two core models. Get fit.py working. Launch the fine-tune at hour 2:30 — the one block that cannot slip.
+Night
+GPU trains the detector. Network finishes every other download.
+Fri
+A/B the weights and keep whichever measures better. Then re-ID, retrieval, real-time, demo surface, eval sweep. Last two hours are dry runs.
+Sat
+Read the real levels → fit.py → two zones → run.py. Level 1 in thirty minutes.
+The three things that actually win
+01 · architecture
+
+The cascade sentence
+"A small VLM can't watch every frame, so I made it the judge at the end of a cheap cascade — eight calls instead of eighteen thousand."
+
+This is the answer to their question
+
+02 · rigour
+
+Night, on purpose
+Report day AUC and night AUC separately. They gave you night footage deliberately, and almost nobody else will split the number.
+
+Block F5
+
+03 · deployability
+
+fit.py's wall-clock
+"Five minutes to adapt to a scene we had never seen." One number — and the reason you didn't need to train an anomaly model at all.
+
+Block F9
+
+Four things not to do
+
+Don't fine-tune the VLM. No labels, no gain, and it competes for the same GPU. Don't train an anomaly model on someone else's city — normality is the thing that will not transfer. Don't chase YOLO versions — imgsz=1280 plus SAHI beats any version bump on aerial footage. Don't skip the dry runs — an unrehearsed demo fails in public.
+
+The budget
+
+The night is worth more than the hours
+Thursday
+
+10 h · build
+
+Overnight
+
+~9 h · GPU
+
+Friday
+
+12 h · build
+
+Saturday
+
+arena
+
+A ten-hour plan had to squeeze training into the working day, which meant a compromised fine-tune. Two days with a night between them means the training is free — nine hours of GPU that cost you nothing but remembering to launch it. That upgrades the run from yolo11n at 960 px for 25 epochs to yolo11s at 1280 px for 60 epochs, which is the difference between a fine-tune that might beat stock and one that probably does.
+
+The one thing that must happen Thursday
+
+Block T3, around hour 2:30 — launch the overnight fine-tune. Everything else on Thursday can slip by an hour without consequence. If that job is not running when you go to sleep, Friday loses its head start and the whole plan drops back to a compromise.
+
+The governing decision
+
+Train, fit, or prompt
+The footage arrives at the event. Anything trained now on Avenue or UCF-Crime learns a different city, altitude, camera and lighting — and "normal" is precisely what will not transfer. What does transfer is viewpoint and scale. So every capability in this build is sorted into one of three buckets, and knowing which is which is the strongest thing you can say in Q&A.
+
+Gradient descent
+
+Train — overnight
+Domain-general. Survives the change of city.
+
+yolo11s fine-tuned on VisDrone — aerial, small, top-down
+40% synthetic night copies, so low light isn't a surprise
+Launched T3 · collected F0
+
+Arithmetic
+
+Fit — at the event
+Scene-specific. Cheap, because nothing is learned.
+
+Per-class speed mean and std
+Density / congestion baseline
+Normal-bank embeddings from quiet frames
+Zone polygons, drawn by hand
+Thresholds, swept on whatever labels exist
+fit.py · under 5 minutes
+
+Text
+
+Prompt — never train
+Your real tuning surface on the day.
+
+The open-vocabulary class list
+The VLM judge prompt and its JSON schema
+Seconds. Iterate live.

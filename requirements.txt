@@ -1,0 +1,14 @@
+ultralytics>=8.3.0
+opencv-python
+numpy
+scikit-learn
+pyyaml
+# VLM stage (skip if no GPU; pipeline runs with vlm.backend=none)
+torch
+transformers>=4.49.0
+accelerate
+qwen-vl-utils[decord]
+# optional: small-object aerial detection
+sahi
+# optional: embedding-based normal-bank
+open_clip_torch
