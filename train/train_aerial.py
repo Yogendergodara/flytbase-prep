@@ -91,6 +91,18 @@ def main():
                          "Kaggle session dying at epoch 30 of 40 should not "
                          "cost you the whole night")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--epochs", type=int, default=None,
+                    help="override the preset's epoch count - needed when --data "
+                         "points at a dataset much bigger than VisDrone alone (e.g. "
+                         "aerial_combined/data.yaml, ~5.4x more images than VisDrone "
+                         "at the same batch size): epoch wall-clock scales with "
+                         "dataset size, so the 'kaggle' preset's 40 epochs would run "
+                         "~14h on the combined set vs the ~2h measured on VisDrone "
+                         "alone - likely longer than one Kaggle GPU session. A "
+                         "two-stage run from an already-converged --base also needs "
+                         "fewer epochs than training from stock weights.")
+    ap.add_argument("--batch", type=int, default=None,
+                    help="override the preset's batch size")
     ap.add_argument("--device", default=None,
                     help="'0' for one GPU, '0,1' for both T4s (DDP - Ultralytics "
                          "splits the batch across them, not a clean 2x speedup). "
@@ -125,6 +137,8 @@ def main():
     else:
         base, two_stage = _resolve_pretrained(model_name)
     lr0 = _lr0_for(two_stage)
+    epochs = a.epochs or epochs
+    batch = a.batch or batch
     print(f"[train] {base} @ {imgsz}px, {epochs} epochs, batch {batch}, "
           f"freeze={freeze} backbone layers, lr0={lr0}")
 

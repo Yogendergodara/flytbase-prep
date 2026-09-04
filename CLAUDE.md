@@ -36,9 +36,19 @@ list. Highlights worth remembering:
 - Event windows are clipped to `clip_seconds` around the peak rather than
   spanning the whole tracklet.
 
-**Phase 5 (Kaggle training) is the only remaining gate** — nothing above can
-be verified against real data/weights until it runs. P13 (harden/dry-run/
-pitch) is procedure, not code.
+**Phase 5 (Kaggle training) has run and finished.** VisDrone-only `yolo11s`
+@1024, early-stopped at epoch 33/40 (patience=8, no improvement in last 8),
+best weights from **epoch 25**. Val (548 VisDrone val images, 38,759
+instances): **P 0.598, R 0.464, mAP50 0.491, mAP50-95 0.291**. Per-class
+mAP50-95 ranges from 0.609 (car) down to 0.116 (awning-tricycle) — small/rare
+classes are notably weaker than car/bus. `best.pt` saved to
+`weights/aerial_night/weights/best.pt` on Kaggle — **must still be downloaded
+locally**, Kaggle output does not persist. Whether `make_night.py` ran before
+this training pass has not been confirmed — the run log doesn't show it, and
+the checkpoint name (`aerial_night`) is a directory name, not evidence night
+augmentation was in the data. **F0 (A/B fine-tuned vs stock on a night clip)
+is the mandatory next step before trusting this checkpoint** — the training
+log itself said so. P13 (harden/dry-run/pitch) is procedure, not code.
 
 **Third pass (design-doc audit + fresh scan) fixed:**
 - **G-A** no exception boundary around per-event stages — a VLM OOM or
@@ -59,7 +69,7 @@ pitch) is procedure, not code.
   unread) was already fixed two passes ago — the key was removed, not left
   dead.
 
-**Test suite now covers all of the above** — 26 tests, including a
+**Test suite now covers all of the above** — 37 tests passing, including a
 regression that `judge_event_safe` degrades instead of raising, that
 `HysteresisSuppressor` used directly matches the `suppress()` wrapper
 (proof G-B can't drift), and that `hover_pan_px_threshold` discounts
@@ -130,7 +140,7 @@ defaults to 0 until the bank is validated on real footage (G-I).
 |---|---|---|---|
 | orchestrator | `run.py` | CLI (`--preset day/night/fast/accurate/live`) | — |
 | night data | `train/make_night.py` | CLI | — |
-| fine-tune | `train/train_aerial.py` | CLI (`--base`, `--resume`) | **never launched** |
+| fine-tune | `train/train_aerial.py` | CLI (`--base`, `--resume`) | **ran, done** — mAP50-95 0.291 @ epoch 25, `best.pt` not yet downloaded locally |
 | tracking | `pipeline/tracks.py` | run.py | on |
 | events | `pipeline/events.py` | run.py, stream.py | on |
 | scene fit | `fit.py` | CLI | — |
@@ -155,12 +165,72 @@ defaults to 0 until the bank is validated on real footage (G-I).
 | distillation labeling | `train/label_pseudo.py` | CLI | refuses without teacher API env vars |
 | distillation fine-tune | `train/distill_vlm.py` | CLI | — |
 | distilled VLM backend | `pipeline/vlm_judge.py` (`QwenDistilledJudge`) | run.py, stream.py | **off** (`vlm.backend: qwen_distilled`, needs `vlm.distilled_adapter_path`) |
+| Pool 1 dataset build | `train/build_aerial_dataset.py` | CLI | written, never run |
+| Pool 3 dataset build | `train/build_scene_classifier_dataset.py` | CLI | written, never run |
+| Pool 2 corpus build | `train/build_vlm_text_corpus.py` | CLI | written, never run |
+| Kaggle run sheet | `KAGGLE_RUN.md` | — | the ordered build+train+A/B commands |
 
 **Everything is reachable; much of it is off by default.** A bare
 `python run.py --video x.mp4` runs tracking → events → geometric fusion only.
 The presets turn the rest on.
 
-No trained weights exist (`weights/aerial_night/weights/best.pt` absent).
+Trained weights exist on Kaggle (`weights/aerial_night/weights/best.pt`,
+epoch 25, mAP50-95 0.291) but have **not yet been downloaded** into this
+repo's `weights/` — treat the local path as still absent until confirmed
+downloaded.
+
+## Dataset build scripts (DATASET_PLAN.md Phase D2-D4, written not run)
+`train/build_aerial_dataset.py` (Pool 1: VisDrone + ~15k-frame stratified
+UIT-ADrone video sample, class-remapped, VisDrone val untouched for a clean
+A/B), `train/build_scene_classifier_dataset.py` (Pool 3: FloodNet + FASDD_UAV
++ capped D-Fire -> `datasets/scene_hazard/{train,val}/{fire,smoke,flood,normal}/`),
+`train/build_vlm_text_corpus.py` (Pool 2: small few-shot corpus for
+`vlm_judge.PROMPT`). All three assume documented-but-unverified schemas for
+datasets this repo has never downloaded. Two corrections grounded in actual
+knowledge of these public datasets (not generic guesses): FloodNet's Track-1
+classification folders (`Flooded`/`Non-Flooded`) are used directly when
+present, only falling back to guessing segmentation-mask pixel values if
+they're absent; FASDD is a detection dataset (bbox annotations), not
+folder-per-class, and is now handled with the same YOLO-label logic as
+D-Fire (`--fasdd-fire-id`/`--fasdd-smoke-id` to correct the class order).
+D-Fire's earlier fake "scene grouping" was removed — it's a compiled set of
+independent stock photos, not video frames, so a plain per-image split is
+honest where the grouping heuristic wasn't. UIT-ADrone's COCO json fields
+and the four VLM-text sources' schemas remain unverified guesses; each
+refuses or prints a loud warning on a mismatch rather than silently
+mis-labeling data — the printed per-source/per-class counts on the first
+real run are the actual check. No new dependencies (uses numpy/Pillow
+already in requirements.txt).
+
+**Bugs found by smoke-testing these three scripts against synthetic data
+(the scripts now have that coverage; the datasets themselves are still
+undownloaded):**
+- **Labels would never have been found.** UIT labels were written to
+  `<out>/uit_labels/` while images stayed in the source tree. Ultralytics
+  pairs them by swapping the last `/images/` for `/labels/`, so all 40k
+  sampled frames would have trained as empty background — no crash, just a
+  quietly ruined run. Frames are now symlinked into `<out>/images/` with
+  labels at `<out>/labels/`; a test asserts the derived label path resolves.
+- **`motorbike` → bicycle.** Synonyms matched in insertion order, so "bike"
+  caught "motorbike" and "tricycle" caught "awning-tricycle". Now exact-match
+  first, then longest key first.
+- **Every video collapsed into one group.** `Path(file_name).stem` threw away
+  the directory, so `clipA/000001.jpg` grouped on `""`. Now prefers the
+  parent dir — split-by-video was silently not happening.
+- **val took an entire source.** `split_scenes` split on scene *count* with a
+  `max(1, …)` floor, so a source with one big scene sent 100% of its images
+  to val and none to train. Now splits on image-count fraction and always
+  leaves train at least one scene.
+- Out-of-frame COCO boxes (coords >1.0, rejected by Ultralytics) now clipped;
+  non-recursive globs missed `train/val/test`-nested images; identically
+  named files from different sources overwrote each other; a re-run merged
+  into the previous build; an O(n²) membership scan over A2Seek's 42k rows.
+
+`train_aerial.py` gained `--epochs`/`--batch`
+overrides — needed because the combined dataset is ~5.4x more images than
+VisDrone alone, so the "kaggle" preset's 40 epochs would run far longer than
+one Kaggle session. `DATASET_PLAN.md`'s Pool-1-v2 command had a real bug
+(`--resume` there silently ignores `--data`/`--base`) — fixed in the doc.
 
 ## Fixed, unverified
 Found by static review, fixed, never run. Re-check these first if the first
@@ -185,9 +255,12 @@ Kaggle run fails.
   Kaggle output is lost otherwise. `last.pt` is the rescue if you stop early.
 
 ## Remaining steps, in order
-1. First Kaggle run: `make_night.py`, then T3. Keep `best.pt`.
+1. ~~First Kaggle run~~ — **done.** `best.pt` from epoch 25 (mAP50-95 0.291)
+   exists on Kaggle; download it into `weights/aerial_night/weights/` before
+   the next Kaggle session recycles it.
 2. **F0 — A/B the weights.** Fine-tuned vs stock, day and night, VisDrone val.
-   Keep whichever wins; report both numbers either way.
+   Keep whichever wins; report both numbers either way. (The training run
+   itself flagged this as the required next step.)
 3. Wire F1 → F2 → F3 (re-ID, retrieval, TensorRT export + sustained FPS).
 4. **F4 — demo surface.** Alert timeline, click-to-clip, one-sentence "why".
 5. **F5 — eval sweep.** Day and night AUC separately, threshold sweep,
