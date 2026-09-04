@@ -1,4 +1,62 @@
-# Kaggle run sheet — build both datasets, train both models
+# Kaggle run sheet
+
+## PRIORITY: the AHC hackathon fine-tune (do this first)
+
+The hackathon provides real labeled data for the actual scored task (12-class
+video anomaly classification) - this now takes priority over everything
+below. Dataset already consolidated locally at `datasets/AHC_full` (see
+`CLAUDE.md`'s "AHC hackathon dataset pivot" section for the merge story and
+the known data gaps - `normal` and `stalled_or_broken_down_vehicle` are
+badly undersampled even after merging all 5 mirrors, this is real and not
+fixable by re-running the merge).
+
+**Upload `datasets/AHC_full` to Kaggle as a Dataset first** (it's ~2GB,
+already deduplicated - don't upload the 5 raw mirror folders, ~9GB of mostly
+redundant data).
+
+```bash
+# 1. Extract frames per event (CPU only, no GPU needed - can run in the
+#    same Kaggle session before the GPU-heavy step, or even in a CPU-only
+#    session to save GPU-hour budget)
+cd /kaggle/working/flytbase-prep
+python train/extract_ahc_frames.py \
+    --root /kaggle/input/<your-ahc-full-dataset-slug> \
+    --out /kaggle/working/datasets/AHC_frames \
+    --frames-per-event 8 \
+    --manifest train/ahc_manifest.jsonl
+```
+Check the printed class distribution and the "skipped - video file not
+present" counts match what's expected from the known gaps above before
+spending GPU time on step 2.
+
+```bash
+# 2. LoRA fine-tune (GPU required)
+python train/finetune_ahc_vlm.py \
+    --manifest train/ahc_manifest.jsonl \
+    --base Qwen/Qwen2.5-VL-3B-Instruct \
+    --out weights/qwen_ahc_lora --epochs 3
+```
+Watch the oversampling print - if `stalled_or_broken_down_vehicle` still
+shows "still short of 60" after 5x duplication, that class's real accuracy
+ceiling is limited by having only 14 source videos, not by this script.
+
+```bash
+# 3. MANDATORY: score against the real held-out test set
+python train/eval_ahc_vlm.py \
+    --manifest train/ahc_manifest.jsonl \
+    --base Qwen/Qwen2.5-VL-3B-Instruct \
+    --adapter weights/qwen_ahc_lora
+```
+Reports fine-tuned vs. zero-shot-base class accuracy side by side. If the
+adapter doesn't beat zero-shot prompting, report both numbers and say so -
+same rule as every other A/B in this repo.
+
+**Download `weights/qwen_ahc_lora/` and `out/ahc_eval.json` before the
+session ends.**
+
+---
+
+# Original run sheet — build both datasets, train both models (secondary now)
 
 Everything here runs **on Kaggle**, in order, in one session. Nothing runs
 locally (no GPU here). Copy-paste block by block and read the printed output
@@ -20,18 +78,21 @@ The Phase 5 detector (`yolo11s`, mAP50-95 0.291 @ epoch 25) is attached as a
 Kaggle Dataset, not sitting in the working dir — the original session's files
 are gone.
 
-```bash
-find /kaggle/input -name "*.pt" | head -20
-```
-
-Use whatever path this prints wherever `$BASE` appears below. Prefer
-`best.pt` over `last.pt`: training early-stopped at epoch 33, and those last
-epochs were worse than epoch 25's best.
+It is attached as a **Kaggle Model** (not a Dataset), which nests deeper than
+a plain dataset mount — `<owner>/<model>/<framework>/<variation>/<version>/`:
 
 ```bash
-BASE=/kaggle/input/aerial-night-yolo11s-daynight/best.pt
+BASE=/kaggle/input/models/yogendergodara/aerial-night-yolo11s-daynight/pytorch/default/1/best.pt
 ls -la $BASE     # confirm it exists before spending 5 GPU-hours on it
 ```
+
+A second checkpoint, `aerial-night-yolo11s`, is also attached — that is NOT
+the one to use. Prefer `best.pt` over `last.pt` in either case: training
+early-stopped at epoch 33 and those last epochs were worse than epoch 25's
+best.
+
+`%%bash` cells do not share variables, so paste the full path into each cell
+rather than relying on `$BASE` carrying over.
 
 Also confirm the raw datasets are attached (Phase D1 in `DATASET_PLAN.md`):
 VisDrone, UIT-ADrone, Drone-Anomaly, FloodNet, FASDD_UAV, D-Fire.

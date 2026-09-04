@@ -125,12 +125,26 @@ def build_floodnet(root, flood_pixel_values, out, val_frac, seed):
     if flooded_dir and non_flooded_dir:
         print(f"[scene-hazard] FloodNet: using Track-1 classification folders "
               f"({flooded_dir.name}/, {non_flooded_dir.name}/) - no mask guessing needed")
-        for img_path in sorted(flooded_dir.glob("*")):
-            if img_path.suffix.lower() in IMG_EXT:
-                scene_to_items[img_path.stem].append((img_path, "flood"))
-        for img_path in sorted(non_flooded_dir.glob("*")):
-            if img_path.suffix.lower() in IMG_EXT:
-                scene_to_items[img_path.stem].append((img_path, "normal"))
+        for label_dir, label in ((flooded_dir, "flood"), (non_flooded_dir, "normal")):
+            # some re-uploads put images directly in Flooded/Non-Flooded, others
+            # nest them under an image/images/img child dir alongside a
+            # mask/masks dir (that child holds Track-2 masks bundled into the
+            # Track-1 folder, not more images - skip it explicitly, matching
+            # by name rather than "the other subdir" so a third subfolder
+            # doesn't get treated as images too)
+            direct = [p for p in label_dir.glob("*") if p.suffix.lower() in IMG_EXT]
+            if direct:
+                imgs = direct
+            else:
+                img_child = next((c for c in label_dir.iterdir()
+                                   if c.is_dir() and c.name.lower() in ("image", "images", "img")),
+                                  None)
+                imgs = sorted(p for p in img_child.glob("*") if p.suffix.lower() in IMG_EXT) if img_child else []
+                if img_child:
+                    print(f"[scene-hazard] FloodNet: {label_dir.name}/ images nested under "
+                          f"{label_dir.name}/{img_child.name}/")
+            for img_path in imgs:
+                scene_to_items[img_path.stem].append((img_path, label))
     else:
         img_dir, mask_dir = root / "images", root / "masks"
         if not img_dir.exists() or not mask_dir.exists():
@@ -160,11 +174,32 @@ def build_floodnet(root, flood_pixel_values, out, val_frac, seed):
     return counts
 
 
+def _find_yolo_images_and_labels(root):
+    """Find every images/+labels/ pair under root, at any depth - handles
+    both a flat root/images+root/labels layout and one split across
+    root/train/{images,labels}, root/test/{images,labels} (confirmed: this
+    is what the shubhamkarande13/d-fire re-upload actually ships, not the
+    flat layout the dataset's own docs describe). All splits found are
+    pooled - we build our own train/val split from this pool rather than
+    trusting the upload's, since the point here is one consistent split
+    policy across every Pool 3 source, not three different ones."""
+    img_dirs = [d for d in root.rglob("*") if d.is_dir() and d.name.lower() == "images"]
+    if not img_dirs and (root / "images").is_dir():
+        img_dirs = [root / "images"]  # rglob("*") doesn't include root itself
+    images, label_by_stem = [], {}
+    for img_dir in img_dirs:
+        lab_dir = img_dir.parent / "labels"
+        for p in lab_dir.rglob("*.txt") if lab_dir.exists() else []:
+            label_by_stem[p.stem] = p
+        images += [p for p in img_dir.rglob("*") if p.suffix.lower() in IMG_EXT]
+    return sorted(images), label_by_stem
+
+
 def _yolo_box_label(lab_path, fire_id, smoke_id):
     """Detection -> per-image classification label: an image gets 'fire' if
     any box is the fire class, else 'smoke' if any box is the smoke class,
     else 'normal'. Fire takes priority when both appear in one frame."""
-    if not lab_path.exists():
+    if lab_path is None or not lab_path.exists():
         return "normal"
     classes = {int(line.split()[0]) for line in lab_path.read_text().splitlines() if line.strip()}
     if fire_id in classes:
@@ -178,20 +213,14 @@ def build_fasdd(root, out, val_frac, seed, fire_id, smoke_id):
     """FASDD is published with detection annotations (fire/smoke bboxes),
     not classification folders - same YOLO-label conversion as D-Fire."""
     root = Path(root)
-    img_dir, lab_dir = root / "images", root / "labels"
-    if not img_dir.exists():
-        print(f"[scene-hazard] FASDD_UAV not found at {root} (expected images/+labels/ "
-              f"in YOLO detection format), skipping")
+    images, label_by_stem = _find_yolo_images_and_labels(root)
+    if not images:
+        print(f"[scene-hazard] FASDD_UAV not found at {root} (no images/+labels/ pair "
+              f"anywhere under it, in YOLO detection format), skipping")
         return Counter()
     scene_to_items = defaultdict(list)
-    # rglob, not glob: FASDD ships its images under train/val/test subdirs in
-    # some releases, and a non-recursive scan silently finds zero of them
-    label_by_stem = {p.stem: p for p in lab_dir.rglob("*.txt")} if lab_dir.exists() else {}
-    for img_path in sorted(img_dir.rglob("*")):
-        if img_path.suffix.lower() not in IMG_EXT:
-            continue
-        label = _yolo_box_label(label_by_stem.get(img_path.stem, lab_dir / "___missing.txt"),
-                                fire_id, smoke_id)
+    for img_path in images:
+        label = _yolo_box_label(label_by_stem.get(img_path.stem), fire_id, smoke_id)
         # FASDD_UAV frames come from UAV video capture, so consecutive frames
         # of one flight are near-duplicates - group by the filename prefix
         # before the trailing frame number to keep one flight on one side of
@@ -216,18 +245,13 @@ def build_dfire(root, sample_frac, out, val_frac, seed, fire_id, smoke_id):
     frames), so there is no real scene/clip to group by - a fabricated
     grouping would be worse than an honest per-image split."""
     root = Path(root)
-    img_dir, lab_dir = root / "images", root / "labels"
-    if not img_dir.exists():
-        print(f"[scene-hazard] D-Fire not found at {root}, skipping")
+    images, label_by_stem = _find_yolo_images_and_labels(root)
+    if not images:
+        print(f"[scene-hazard] D-Fire not found at {root} (no images/+labels/ pair "
+              f"anywhere under it), skipping")
         return Counter()
-    label_by_stem = {p.stem: p for p in lab_dir.rglob("*.txt")} if lab_dir.exists() else {}
-    items = []
-    for img_path in sorted(img_dir.rglob("*")):
-        if img_path.suffix.lower() not in IMG_EXT:
-            continue
-        label = _yolo_box_label(label_by_stem.get(img_path.stem, lab_dir / "___missing.txt"),
-                                fire_id, smoke_id)
-        items.append((img_path, label))
+    items = [(img_path, _yolo_box_label(label_by_stem.get(img_path.stem), fire_id, smoke_id))
+             for img_path in images]
 
     rng = random.Random(seed)
     rng.shuffle(items)

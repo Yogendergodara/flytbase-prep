@@ -25,8 +25,14 @@ import io
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
+# same fix as train/extract_ahc_frames.py: `python train/label_pseudo.py`
+# (this file's own documented invocation) puts only train/ on sys.path, not
+# the repo root, so `from pipeline...` fails with ModuleNotFoundError -
+# confirmed by actually hitting this running the sibling script, not assumed.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pipeline.vlm_judge import PROMPT, extract_frames
 
 

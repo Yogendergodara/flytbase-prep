@@ -16,6 +16,101 @@ Small-VLM anomaly detection on drone video. Cascade: detector + tracker turns
   "Remaining steps" alike — rather than re-deriving status by re-reading
   every module.
 
+## AHC hackathon dataset pivot (2026-09-04)
+The hackathon provides real labeled data for the actual scored task: 12-class
+video anomaly classification (`normal`, `traffic_accident`,
+`traffic_congestion`, `stalled_or_broken_down_vehicle`,
+`vehicle_blocking_traffic`, `wrong_way_driving`, `road_spill_or_debris`,
+`waterlogging_or_flood`, `fire`, `smoke`, `fighting_or_violence`,
+`loitering_or_suspicious_presence`), with per-event `description_summary`
+text and CCTV/dashcam/drone footage. This **supersedes most of
+`DATASET_PLAN.md`'s Pool 2 (VLM text corpus) and Pool 3 (fire/smoke/flood)** -
+the official data is smaller, in-domain, and directly scored, unlike the
+scrounged public-dataset substitutes. Pool 1 (VisDrone+UIT-ADrone aerial
+detector) is unaffected - the official data has no bounding boxes, so it
+can't train an object detector; the detector/tracker stage of the cascade
+still needs Pool 1.
+
+**Dataset problem found and fixed:** the 5 "mirror" download links are not
+independent full copies - each is a partial Google Drive folder export
+missing different classes (e.g. one mirror had 0 videos for
+`loitering_or_suspicious_presence` despite the folder/csv existing; another
+had 184 for the same class). `train/consolidate_ahc_dataset.py` merges the
+union of all 5 into `datasets/AHC_full`, deduped by filename. **Even after
+merging, real gaps remain** - checked by comparing actual `.mp4` files
+against unique `video_id`s in each class's own `ground_truth.csv`:
+`normal` has only 151/973 videos (15%), `stalled_or_broken_down_vehicle`
+only 14/223 (6%). Other classes (fire, smoke, fighting, flood, vehicle-
+blocking, road-spill) are ~95-100% complete. This is a real data gap, not a
+merge bug - re-downloading those specific classes is the only real fix;
+`train/finetune_ahc_vlm.py`'s oversampling only reweights the loss, it does
+not manufacture missing videos.
+
+**Coverage audit (`train/audit_ahc_coverage.py`, run 2026-09-04): only 48% of
+the labelled data is actually downloaded** - 1,668 of 3,207 videos referenced
+in the official ground_truth.csv files are missing. Worst: `normal` 151/973
+(16%), `stalled_or_broken_down_vehicle` 14/223 (6%), `traffic_congestion`
+67/268 (25%), `traffic_accident` 257/565 (45%). Six classes are ~100%
+complete. Recovering the missing 1,668 roughly DOUBLES the real dataset and
+is the highest-value accuracy action available - more valuable than any
+frame-sampling or augmentation change. Missing ids are listed in
+`out/ahc_missing.txt`.
+
+**Full extraction completed and verified (2026-09-04):** `train/ahc_manifest.jsonl`
+now has **4,220 train examples** from the 1,494 real distinct events (2.82x
+via 3 crops/event), **32 held-out test examples** (uncropped/unaugmented),
+**33,923 frames on disk**, zero missing files. `finetune_ahc_vlm.py`'s
+in-memory flip doubles this to **~8,440 effective training examples** at
+zero extra extraction cost. Ran in 9 class-sized chunks (`--classes`/
+`--append` flags) because the full run measured ~41 minutes - too long for
+one command; each chunk verified individually before moving to the next.
+
+**What actually multiplies VLM training data** (a recurring misconception
+worth stating once): for the VLM classifier ONE TRAINING EXAMPLE = ONE
+EVENT, all its frames fed as a single multi-image input. Raising
+frames-per-event 8->20 gives denser views of the SAME examples, not more
+examples, and costs GPU memory per step. What does add examples:
+`--crops-per-event` (distinct temporal sub-windows) and `--augment flip`
+(mirrored pixels, free - frames already decoded). Measured on a 20-event
+sample: 3 crops + flip yields **5.4x** examples (not 6x - events too short
+for distinct crops correctly fall back to 1 crop rather than duplicating
+identical frames, since silent duplication is just disguised oversampling,
+and `finetune_ahc_vlm.py` already does oversampling explicitly and labelled).
+Test split is never cropped or augmented - that would stop the reported
+score describing the real 34-video public test set.
+
+**Pipeline, in order** (`KAGGLE_RUN.md` has the exact commands):
+1. `train/consolidate_ahc_dataset.py` — merge the 5 mirrors (done locally,
+   `datasets/AHC_full` exists on this machine, not yet uploaded to Kaggle).
+2. `train/extract_ahc_frames.py` — per ground_truth.csv row (not per video -
+   one video can carry several events), extract frames for that event's
+   [start,end] window via `pipeline.vlm_judge.extract_frames` (whole video
+   for `normal`/blank-timestamp rows), write `train/ahc_manifest.jsonl`.
+   Confirmed against the real data before writing: `video_id` == filename
+   stem exactly, `is_anomaly` is the string `"true"`/`"false"`, every one of
+   3,173 train rows has a non-blank `description_summary`.
+3. `train/finetune_ahc_vlm.py` — Unsloth LoRA fine-tune of
+   `Qwen2.5-VL-3B-Instruct`, frozen vision encoder / LoRA on language layers
+   only (the hackathon primer's own recipe, distinct from
+   `train/distill_vlm.py`'s vision+language recipe for the *different* P18
+   judge-distillation task). Video-level train/val split. Oversamples
+   starved classes up to `--min-per-class` (capped `--max-oversample`x) and
+   says so plainly rather than presenting it as fixing the data gap.
+4. `train/eval_ahc_vlm.py` — **mandatory**, scores the adapter against the
+   real test split (never trained on) and against zero-shot base-model
+   prompting on the same events, so the adapter's number has something to
+   beat rather than being reported alone.
+
+**Bug found and fixed by actually running step 2**: `train/extract_ahc_frames.py`
+and the pre-existing `train/label_pseudo.py` both did `from pipeline.vlm_judge
+import ...` at module level. `python train/<script>.py` only puts `train/` on
+`sys.path`, not the repo root, so this raised `ModuleNotFoundError` on the
+very first run - exactly the documented invocation in both files' own
+docstrings would have failed. Fixed with an explicit `sys.path.insert` in
+both files. This was latent in `label_pseudo.py` since it was written
+(P18, "never run") and only surfaced now because this is the first time
+either import path was actually executed.
+
 ## Repo map and status
 Nothing here has ever been executed. "Written" means the code exists and
 reads correctly; it does not mean it has run.
