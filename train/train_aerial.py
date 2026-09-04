@@ -101,16 +101,22 @@ def main():
     model_name, imgsz, epochs, batch, freeze = PRESETS[a.preset]
 
     if a.resume:
-        last = f"weights/{a.name}/weights/last.pt"
-        if not Path(last).exists():
+        last = Path(f"weights/{a.name}/weights/last.pt").resolve()
+        if not last.exists():
             sys.exit(f"[train] --resume given but {last} does not exist - "
                      f"nothing to resume (check --name matches the original run)")
         print(f"[train] resuming from {last}")
-        YOLO(last).train(resume=True)
+        YOLO(str(last)).train(resume=True)
         return
 
     if a.base:
-        base = a.base
+        # DDP (--device 0,1) spawns a subprocess per GPU via torch.distributed.run,
+        # and that subprocess does not reliably share this process's cwd - a
+        # relative --base path resolves fine on rank 0 and FileNotFoundErrors on
+        # rank 1. HF Hub downloads (_resolve_pretrained below) are already
+        # absolute paths and never hit this; a local --base needs the same
+        # treatment.
+        base = str(Path(a.base).resolve())
         two_stage = True
         print(f"[train] base checkpoint (forced): {base} (two-stage: aerial -> night)")
     elif a.no_pretrained:
