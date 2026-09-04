@@ -39,14 +39,31 @@ def _parse(raw):
         return None
 
 
-def predict(model, tokenizer, row, frames_root, max_new_tokens=150):
+def _as_bool(v):
+    """The model emits JSON text, so is_anomaly can come back as the string
+    "true" rather than a real boolean. Comparing that to a Python bool with
+    == is always False, which would UNDERSTATE is_anomaly accuracy - a
+    measurement bug that makes the model look worse than it is. Normalise
+    both sides before comparing."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1")
+    return bool(v) if v is not None else None
+
+
+def predict(model, tokenizer, row, frames_root, max_pixels=401408, max_new_tokens=150):
     from pathlib import Path
     from PIL import Image
     import torch
+    from finetune_ahc_vlm import cap_pixels
     # same relative-path convention as finetune_ahc_vlm.py's to_record -
     # the manifest and the AHC_frames folder travel to Kaggle separately
     paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p) for p in row["frame_paths"]]
-    images = [Image.open(p).convert("RGB") for p in paths]
+    # same pixel cap as training: scoring the adapter on differently-scaled
+    # frames than it was trained on would measure the wrong thing (and can
+    # overflow the context with 8 full-res frames)
+    images = [cap_pixels(Image.open(p).convert("RGB"), max_pixels) for p in paths]
     content = [{"type": "image", "image": im} for im in images]
     content.append({"type": "text", "text": AHC_PROMPT.format(classes=", ".join(AHC_CLASSES))})
     messages = [{"role": "user", "content": content}]
@@ -58,25 +75,29 @@ def predict(model, tokenizer, row, frames_root, max_new_tokens=150):
     return _parse(raw)
 
 
-def score(model, tokenizer, test_rows, label, frames_root):
+def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408):
     n_correct_class = n_correct_anomaly = n_parsed = 0
     per_class = defaultdict(lambda: [0, 0])  # [correct, total]
     confusion = Counter()
     for row in test_rows:
-        pred = predict(model, tokenizer, row, frames_root)
+        pred = predict(model, tokenizer, row, frames_root, max_pixels)
         truth_cls = row["class_name"]
         per_class[truth_cls][1] += 1
         if pred is None:
             confusion[(truth_cls, "UNPARSED")] += 1
             continue
         n_parsed += 1
-        pred_cls = pred.get("class_name")
-        pred_anom = pred.get("is_anomaly")
-        confusion[(truth_cls, pred_cls)] += 1
-        if pred_cls == truth_cls:
+        # normalise both sides: the model may emit a class with different
+        # case/whitespace, or is_anomaly as the string "true" - none of which
+        # are real errors, but all of which would be scored as errors on a
+        # raw == comparison
+        pred_cls = (pred.get("class_name") or "").strip().lower()
+        pred_anom = _as_bool(pred.get("is_anomaly"))
+        confusion[(truth_cls, pred_cls or "EMPTY")] += 1
+        if pred_cls == truth_cls.strip().lower():
             n_correct_class += 1
             per_class[truth_cls][0] += 1
-        if pred_anom == row["is_anomaly"]:
+        if pred_anom == _as_bool(row["is_anomaly"]):
             n_correct_anomaly += 1
 
     n = len(test_rows)
@@ -102,6 +123,10 @@ def main():
                     help="skip the zero-shot base-model comparison run (faster, "
                          "but then the adapter's number has nothing to compare against)")
     ap.add_argument("--out", default="out/ahc_eval.json")
+    ap.add_argument("--max-pixels", type=int, default=401408,
+                    help="must match finetune_ahc_vlm.py's --max-pixels - scoring "
+                         "on differently-scaled frames than training used measures "
+                         "the wrong thing")
     ap.add_argument("--frames-root", default="datasets/AHC_frames",
                     help="where AHC_frames actually landed on THIS machine/Kaggle "
                          "session - same convention as finetune_ahc_vlm.py")
@@ -120,7 +145,8 @@ def main():
             a.base, device_map="auto", torch_dtype="auto")
         base_model.eval()
         proc = AutoProcessor.from_pretrained(a.base)
-        results["zero_shot_base"] = score(base_model, proc, test_rows, "zero-shot base (no fine-tune)", a.frames_root)
+        results["zero_shot_base"] = score(base_model, proc, test_rows,
+                                          "zero-shot base (no fine-tune)", a.frames_root, a.max_pixels)
         del base_model
 
     tuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
@@ -128,7 +154,8 @@ def main():
     tuned_model = PeftModel.from_pretrained(tuned_model, a.adapter)
     tuned_model.eval()
     proc = AutoProcessor.from_pretrained(a.base)
-    results["finetuned"] = score(tuned_model, proc, test_rows, f"fine-tuned ({a.adapter})", a.frames_root)
+    results["finetuned"] = score(tuned_model, proc, test_rows,
+                                 f"fine-tuned ({a.adapter})", a.frames_root, a.max_pixels)
 
     if "zero_shot_base" in results:
         b, f = results["zero_shot_base"]["class_acc"], results["finetuned"]["class_acc"]

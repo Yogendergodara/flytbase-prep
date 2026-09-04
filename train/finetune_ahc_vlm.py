@@ -73,13 +73,24 @@ def video_level_split(train_rows, val_fraction, seed):
 
 
 def oversample(rows, min_per_class, max_oversample, seed):
+    """Duplicate examples of under-represented classes up to min_per_class.
+
+    This reweights the loss; it does NOT create new information. A class
+    with 14 source videos duplicated to 150 examples is still 14 videos, now
+    seen ~11x per epoch - which risks memorising those clips. The counts
+    printed below therefore distinguish EXAMPLES (crops, what training sees)
+    from distinct VIDEOS (what the class actually knows about), because an
+    earlier version reported crop counts while calling them "events" and
+    made starved classes look ~3x healthier than they were.
+    """
     by_class = defaultdict(list)
     for r in rows:
         by_class[r["class_name"]].append(r)
     rng = random.Random(seed)
     out = []
-    for cls, items in by_class.items():
+    for cls, items in sorted(by_class.items()):
         n = len(items)
+        n_videos = len({r["video_id"] for r in items})
         factor = min(max_oversample, math.ceil(min_per_class / n)) if n < min_per_class else 1
         dup = list(items)
         for _ in range(factor - 1):
@@ -87,8 +98,9 @@ def oversample(rows, min_per_class, max_oversample, seed):
         rng.shuffle(dup)
         if factor > 1:
             reached = n * factor
-            note = "" if reached >= min_per_class else f" (still short of {min_per_class})"
-            print(f"[finetune] {cls}: {n} real events x{factor} -> {reached}{note}")
+            note = "" if reached >= min_per_class else f", still short of {min_per_class}"
+            print(f"[finetune] {cls}: {n} examples from {n_videos} distinct videos "
+                  f"x{factor} -> {reached}{note} (duplication, not new data)")
         out += dup
     rng.shuffle(out)
     return out
@@ -103,7 +115,31 @@ def resolve_paths(row, frames_root):
             for p in row["frame_paths"]]
 
 
-def to_record(row, frames_root, flip=False):
+def cap_pixels(im, max_pixels):
+    """Downscale so W*H <= max_pixels, preserving aspect ratio.
+
+    This is not cosmetic - it is the difference between training on the
+    examples you think you are and training on truncated ones. Qwen2.5-VL
+    spends roughly (W/28)*(H/28) visual tokens per image, so the 1280x720
+    frames extract_ahc_frames.py writes cost ~1,175 tokens EACH; eight of
+    them is ~9,400 tokens, which overflows --max-seq-length 8192 before a
+    single word of text. The overflow is silent: frames (and potentially
+    the assistant target itself) fall off the end of the sequence and the
+    model learns from a partial example.
+
+    max_pixels defaults to config.yaml's vlm.max_pixels (401408 = 512*28*28),
+    so an image costs at most ~512 tokens and eight fit in ~4,096 - the same
+    budget pipeline/vlm_judge.py already uses at inference, which also keeps
+    train-time and inference-time framing consistent.
+    """
+    w, h = im.size
+    if w * h <= max_pixels:
+        return im
+    scale = (max_pixels / (w * h)) ** 0.5
+    return im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+
+
+def to_record(row, frames_root, max_pixels=401408, flip=False):
     """Decode one training example's frames and build its chat record.
 
     flip=True mirrors the frames in memory - no extra extraction, no extra
@@ -119,7 +155,8 @@ def to_record(row, frames_root, flip=False):
     see that class's docstring for why that distinction is load-bearing.
     """
     from PIL import Image, ImageOps
-    images = [Image.open(p).convert("RGB") for p in resolve_paths(row, frames_root)]
+    images = [cap_pixels(Image.open(p).convert("RGB"), max_pixels)
+              for p in resolve_paths(row, frames_root)]
     if flip:
         images = [ImageOps.mirror(im) for im in images]
     target = json.dumps({
@@ -156,18 +193,20 @@ class LazyAHCDataset:
     materialised list, for the same reason.
     """
 
-    def __init__(self, rows, frames_root, flip_augment):
+    def __init__(self, rows, frames_root, flip_augment, max_pixels=401408):
         self.rows = rows
         self.frames_root = frames_root
         self.flip_augment = flip_augment
+        self.max_pixels = max_pixels
 
     def __len__(self):
         return len(self.rows) * (2 if self.flip_augment else 1)
 
     def __getitem__(self, idx):
         if idx >= len(self.rows):        # second half of the index space = flipped views
-            return to_record(self.rows[idx - len(self.rows)], self.frames_root, flip=True)
-        return to_record(self.rows[idx], self.frames_root, flip=False)
+            return to_record(self.rows[idx - len(self.rows)], self.frames_root,
+                             self.max_pixels, flip=True)
+        return to_record(self.rows[idx], self.frames_root, self.max_pixels, flip=False)
 
 
 def drop_missing_frames(rows, frames_root, label):
@@ -220,8 +259,14 @@ def main():
                           "extract_ahc_frames.py and re-extract rather than "
                           "just lowering this - a truncated example teaches "
                           "the model to answer without seeing all its images.")
-    ap.add_argument("--min-per-class", type=int, default=60,
-                    help="oversample classes below this event count")
+    ap.add_argument("--min-per-class", type=int, default=150,
+                    help="oversample classes with fewer than this many examples. "
+                         "Raised from 60 because at 60 only ONE class "
+                         "(stalled_or_broken_down_vehicle, 38 examples) qualified, "
+                         "leaving a ~10:1 imbalance against traffic_accident (733) "
+                         "- which biases a generative classifier toward the frequent "
+                         "classes. 150 lifts the thin classes without pushing "
+                         "duplication past --max-oversample.")
     ap.add_argument("--max-oversample", type=int, default=5,
                     help="cap on duplication factor - past this, a starved class "
                          "just isn't fixable by reweighting and should be reported as such")
@@ -231,6 +276,13 @@ def main():
                          "(free - no extra extraction cost, see to_record's docstring). "
                          "Never applied to val or test.")
     ap.add_argument("--no-flip-augment", dest="flip_augment", action="store_false")
+    ap.add_argument("--max-pixels", type=int, default=401408,
+                    help="per-image pixel cap (401408 = 512*28*28 = ~512 Qwen "
+                         "visual tokens), matching config.yaml's vlm.max_pixels so "
+                         "training and inference see comparably-scaled frames. "
+                         "Raising this past ~800k with 8 frames/example will "
+                         "overflow --max-seq-length and SILENTLY truncate images "
+                         "off the end of examples - see cap_pixels' docstring.")
     a = ap.parse_args()
 
     rows = load_manifest(a.manifest)
@@ -255,11 +307,19 @@ def main():
     print(f"[finetune] after oversampling: {len(train_split)} train events")
 
     # lazy, not eager: the eager version OOM-killed a whole Kaggle session
-    train_records = LazyAHCDataset(train_split, a.frames_root, a.flip_augment)
-    val_records = LazyAHCDataset(val_split, a.frames_root, flip_augment=False)
+    train_records = LazyAHCDataset(train_split, a.frames_root, a.flip_augment, a.max_pixels)
+    val_records = LazyAHCDataset(val_split, a.frames_root, False, a.max_pixels)
+    n_frames = len(train_split[0]["frame_paths"]) if train_split else 0
     print(f"[finetune] {len(train_records)} train examples"
           f"{' (flip-augmented 2x)' if a.flip_augment else ''}, "
           f"{len(val_records)} val examples - decoded lazily per batch")
+    print(f"[finetune] {n_frames} frames/example, capped at {a.max_pixels} px "
+          f"(~{a.max_pixels // 784} visual tokens each, ~{n_frames * a.max_pixels // 784} "
+          f"for the images) against --max-seq-length {a.max_seq_length}")
+    if n_frames * (a.max_pixels // 784) > a.max_seq_length * 0.8:
+        print(f"[finetune] WARNING: images alone may consume most of the sequence "
+              f"budget - examples risk truncation. Lower --max-pixels or "
+              f"re-extract with fewer --frames-per-crop.")
 
     from unsloth import FastVisionModel
     from unsloth.trainer import UnslothVisionDataCollator
@@ -276,9 +336,25 @@ def main():
     )
     FastVisionModel.for_training(model)
 
+    # train_on_responses_only comes from the hackathon primer's own tip: loss
+    # is then computed on the assistant answer only, not on the (identical
+    # for every example) prompt. That matters for accuracy - without it a
+    # large share of the loss is spent re-predicting boilerplate. The kwarg
+    # name is not stable across Unsloth versions, so fall back rather than
+    # dying at startup, and SAY which path was taken instead of leaving it
+    # ambiguous whether the masking is actually on.
+    try:
+        collator = UnslothVisionDataCollator(model, tokenizer, train_on_responses_only=True)
+        print("[finetune] collator: train_on_responses_only=True (loss on answer only)")
+    except TypeError:
+        collator = UnslothVisionDataCollator(model, tokenizer)
+        print("[finetune] collator: this Unsloth version does not accept "
+              "train_on_responses_only - loss also covers the prompt tokens. "
+              "Training still works; expect slightly worse convergence.")
+
     trainer = SFTTrainer(
         model=model, tokenizer=tokenizer,
-        data_collator=UnslothVisionDataCollator(model, tokenizer, train_on_responses_only=True),
+        data_collator=collator,
         train_dataset=train_records, eval_dataset=val_records,
         args=SFTConfig(
             per_device_train_batch_size=1, gradient_accumulation_steps=8,
