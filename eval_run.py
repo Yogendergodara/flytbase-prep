@@ -100,6 +100,18 @@ def main():
     print(f"[{a.tag}] time-to-detection: {len(caught)}/{len(ranges)} ranges "
           f"caught, mean {mean_ttd}")
 
+    # throughput - "real time" is in the problem statement, so this is the
+    # metric that answers it. Says "not recorded" rather than inventing a 0.
+    wall = data.get("wall_seconds")
+    print(f"[{a.tag}] sustained_fps: "
+          f"{round(n_frames / wall, 1) if wall else 'not recorded'} "
+          f"({n_frames} sampled frames / {wall}s wall)")
+
+    # the cascade's whole argument as one number: the VLM never saw the rest
+    n_vlm = len(data.get("vlm_latency_ms") or [])
+    pct = f"{100 * n_vlm / n_frames:.2f}% of sampled frames" if n_frames else "n/a"
+    print(f"[{a.tag}] vlm_calls: {n_vlm} over {n_frames} sampled frames ({pct})")
+
     print(f"[{a.tag}] threshold sweep over the RAW candidate timeline "
           f"(precision/recall/f1):")
     for row in sweep(raw_scores, labels):
