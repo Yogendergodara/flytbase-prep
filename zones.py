@@ -8,6 +8,10 @@ kind of thing that eats twenty minutes on the day.
 
     python zones.py --video theirs.mp4              # click, then it saves
     python zones.py --video theirs.mp4 --at 45       # grab the frame at 45s
+    python zones.py --video theirs.mp4 --auto        # P17: pre-seed polygons
+                                                      # from zero-shot scene
+                                                      # classification, still
+                                                      # requires 's' to save
 
   left click   add a point
   n            finish this polygon, start the next
@@ -21,12 +25,54 @@ import cv2
 import yaml
 
 
+def _auto_seed(frame_bgr, grid, confidence_floor):
+    """P17: zero-shot classify a grid over the still, turn cells labelled
+    'driving lane' or 'restricted/fenced' into candidate polygons. A
+    SUGGESTION only - returned polygons still need 's' to actually save,
+    identically to a hand-clicked one."""
+    from pipeline.zone_classify import classify_regions
+    frame_rgb = frame_bgr[:, :, ::-1]
+    regions = classify_regions(frame_rgb, grid=tuple(grid),
+                               confidence_floor=confidence_floor)
+    polys = []
+    for r in regions:
+        if not r["intrusion_worthy"]:
+            continue
+        x0, y0, x1, y1 = r["bbox"]
+        polys.append([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+        print(f"[zones] auto: {r['label']} (conf={r['confidence']}) "
+              f"-> proposed polygon {r['bbox']}")
+    if not polys:
+        print("[zones] auto: nothing above confidence_floor - draw manually")
+    return polys
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--at", type=float, default=0.0, help="seconds into the video")
+    ap.add_argument("--auto", action="store_true",
+                    help="P17: propose polygons via zero-shot scene "
+                         "classification before the manual click loop. Also "
+                         "triggered by config.yaml's zones.auto_classify=true "
+                         "without passing this flag")
+    ap.add_argument("--grid", nargs=2, type=int, default=None,
+                    help="default: config.yaml zones.grid, else [4, 4]")
+    ap.add_argument("--confidence-floor", type=float, default=None,
+                    help="default: config.yaml zones.confidence_floor, else 0.3")
     a = ap.parse_args()
+
+    # P17 fix: config.yaml's zones.* knobs were dead - CLI flags had their own
+    # hardcoded defaults and never read the file. --auto (CLI) OR
+    # zones.auto_classify (config) triggers auto-seeding; explicit CLI flags
+    # win over config, which wins over the hardcoded [4, 4] / 0.3 fallback.
+    cfg = yaml.safe_load(open(a.config, encoding="utf-8"))
+    zcfg = cfg.get("zones", {})
+    auto = a.auto or bool(zcfg.get("auto_classify"))
+    grid = a.grid if a.grid is not None else zcfg.get("grid", [4, 4])
+    confidence_floor = (a.confidence_floor if a.confidence_floor is not None
+                        else zcfg.get("confidence_floor", 0.3))
 
     cap = cv2.VideoCapture(a.video)
     if a.at:
@@ -38,6 +84,10 @@ def main():
         return
 
     polys, current = [], []
+    if auto:
+        polys = _auto_seed(frame, grid, confidence_floor)
+        print(f"[zones] {len(polys)} auto-proposed polygon(s) loaded - "
+              f"press 'u'/redraw to adjust, 's' to save, 'q' to discard all")
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:

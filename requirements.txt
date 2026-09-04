@@ -35,3 +35,11 @@ open_clip_torch==2.29.0
 
 # planned, not imported by any module yet:
 # qwen-vl-utils[decord]   - if the Qwen judge moves to video-native input
+
+# P18 distillation stretch (train/label_pseudo.py, train/distill_vlm.py) -
+# NOT needed for the default pipeline (vlm.backend in none/qwen/smolvlm).
+# Only install these if actually attempting Phase 18.
+# requests                 - label_pseudo.py's teacher API calls
+# unsloth                  - 2x faster LoRA/QLoRA, Qwen2.5-VL support
+# trl                      - SFTTrainer
+# peft                     - loads the LoRA adapter at inference (qwen_distilled backend)

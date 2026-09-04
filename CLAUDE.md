@@ -79,6 +79,44 @@ correctly with the optical-flow call mocked out.
   recommendation ("spend 10 min finding a VisDrone-pretrained checkpoint")
   that every earlier pass flagged as open and never implemented in code.
 
+**Fifth pass (ENHANCEMENT_PLAN.md Phases 14-19, written not run):**
+- **P14** economics headline — `run.py` now resets/reads
+  `torch.cuda.max_memory_allocated()` and writes `gpu_mem_gb` into
+  `out/alerts.json`; new `scripts/economics.py` turns that plus
+  `n_frames/wall_seconds` into sustained FPS, peak GPU memory, and an
+  extrapolated feeds-per-GPU number, plus the "% of frames that reached the
+  VLM" claim from the brief.
+- **P15** `REFERENCES.md` — five citations (AnyAnomaly, FADE, WinCLIP/
+  AnomalyCLIP, Holmes-VAU, Open-Vocabulary VAD), each mapped to one specific
+  design decision already in this repo, for the "why not just a detector"
+  question.
+- **P16** `scripts/compare_backends.py` — shells out to `run.py` with
+  different `vlm.backend` values (and a forced-CPU run) on the same clip and
+  diffs latency/alerts side by side. Verifies the already-implemented
+  `smolvlm` backend actually produces alerts; has never been run (needs a
+  real environment).
+- **P17** `pipeline/zone_classify.py` (new) + `zones.py --auto` — zero-shot
+  CLIP scene classification per grid cell (reuses `fit.py`'s SigLIP/
+  ViT-B-32 fallback order, no new model dependency), proposes
+  `restricted_zones` polygons for cells classified as a driving lane or a
+  restricted/fenced area. Suggestion only — still requires `s` to save,
+  never silently overwrites a hand-drawn zone. New `config.yaml` `zones:`
+  section (`auto_classify`, `grid`, `confidence_floor`).
+- **P18** distillation stretch, opt-in and gated — new `train/label_pseudo.py`
+  (teacher API labeling of the SAME candidate-event windows the small model
+  is judged on, using `vlm_judge.PROMPT` verbatim; refuses to run without
+  `TEACHER_API_BASE`/`KEY`/`MODEL` set) and `train/distill_vlm.py` (Unsloth
+  LoRA/QLoRA fine-tune of `Qwen2.5-VL-3B-Instruct`). New `qwen_distilled`
+  backend in `pipeline/vlm_judge.py` (base model + PEFT adapter from
+  `vlm.distilled_adapter_path`). **Governing rule unchanged**: this backend
+  is opt-in only and is meant to be selected AFTER a mandatory A/B against
+  prompted `qwen` on held-out clips shows it wins — never presented
+  unverified. Needs new deps (`unsloth`, `trl`, `peft`, `requests`) — added
+  to `requirements.txt` as commented-out, Phase-18-only lines so the default
+  install is unaffected.
+- **P19** `PREFLIGHT_CHECKLIST.md` — the night-before checklist (weight
+  caching, cold-shell preset runs, wifi-off dry run), procedure not code.
+
 **Known-and-accepted limits** (say these out loud rather than hiding them):
 SAHI is not inside tracking because it returns no track IDs (measurement via
 `scripts/sahi_recall.py` only — G-E); open-vocab can only see windows
@@ -111,6 +149,12 @@ defaults to 0 until the bank is validated on real footage (G-I).
 | SAHI recall | `scripts/sahi_recall.py` | CLI | not in tracking (no track IDs) |
 | night val YAML | `scripts/make_night_yaml.py` | CLI | — |
 | F7 SAM2 / map / congestion | — | — | not started, optional |
+| economics headline | `scripts/economics.py` | CLI, reads `out/alerts.json` | — |
+| backend comparison | `scripts/compare_backends.py` | CLI | — |
+| zone auto-classify | `pipeline/zone_classify.py` | `zones.py --auto` | **off** (manual is default) |
+| distillation labeling | `train/label_pseudo.py` | CLI | refuses without teacher API env vars |
+| distillation fine-tune | `train/distill_vlm.py` | CLI | — |
+| distilled VLM backend | `pipeline/vlm_judge.py` (`QwenDistilledJudge`) | run.py, stream.py | **off** (`vlm.backend: qwen_distilled`, needs `vlm.distilled_adapter_path`) |
 
 **Everything is reachable; much of it is off by default.** A bare
 `python run.py --video x.mp4` runs tracking → events → geometric fusion only.

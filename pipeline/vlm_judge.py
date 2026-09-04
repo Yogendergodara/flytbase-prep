@@ -178,6 +178,28 @@ class SmolVLMJudge(_HFVisionJudge):
         print(f"[vlm] SmolVLM2 loaded, 4-bit={self.quantized}")
 
 
+class QwenDistilledJudge(_HFVisionJudge):
+    """P18: same interface as QwenJudge - base model + a LoRA adapter fine-
+    tuned on teacher pseudo-labels (train/distill_vlm.py). Opt-in only. The
+    governing rule ('never fine-tune the VLM; prompt it', CLAUDE.md) stays
+    the default; this backend is meant to be selected only AFTER Phase 18's
+    mandatory A/B (eval_run.py, prompted vs. distilled on held-out clips)
+    shows it wins - never as an unverified swap-in."""
+
+    def __init__(self, cfg):
+        from transformers import Qwen2_5_VLForConditionalGeneration
+        adapter_path = cfg["vlm"].get("distilled_adapter_path")
+        if not adapter_path:
+            raise ValueError(
+                "vlm.backend=qwen_distilled needs vlm.distilled_adapter_path "
+                "set to train/distill_vlm.py's --out directory")
+        self._load(cfg, Qwen2_5_VLForConditionalGeneration, cfg["vlm"]["model_id"])
+        from peft import PeftModel
+        self.model = PeftModel.from_pretrained(self.model, adapter_path)
+        self.model.eval()
+        print(f"[vlm] Qwen2.5-VL + distilled LoRA adapter loaded from {adapter_path}")
+
+
 def _parse(raw):
     m = re.search(r"\{.*\}", raw, re.S)
     if not m:
@@ -200,6 +222,8 @@ def build_judge(cfg):
         return QwenJudge(cfg)
     if b == "smolvlm":
         return SmolVLMJudge(cfg)
+    if b == "qwen_distilled":
+        return QwenDistilledJudge(cfg)
     raise ValueError("unknown vlm backend: " + b)
 
 

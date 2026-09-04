@@ -13,6 +13,28 @@ from pipeline.vlm_judge import build_judge, extract_frames, judge_event_safe
 from pipeline.fuse import fuse_score, suppress
 
 
+def _peak_gpu_mem_gb():
+    """P14: measured, not estimated - torch.cuda.max_memory_allocated() reset
+    at the start of main()/streaming, read once at the end. None on CPU runs,
+    never coerced to 0 - a CPU run didn't use 'zero' GPU, it used none."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return round(torch.cuda.max_memory_allocated() / 1e9, 3)
+    except ImportError:
+        pass
+    return None
+
+
+def _reset_gpu_mem_stats():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    except ImportError:
+        pass
+
+
 def apply_overrides(cfg, pairs):
     for p in pairs or []:
         k, v = p.split("=", 1)
@@ -58,6 +80,7 @@ def _write_out(path, cfg, eff_fps, n_frames, alerts, wall, lat, t_track=None,
                "alerts": alerts, "candidates": candidates or [],
                "wall_seconds": round(wall, 2),
                "vlm_latency_ms": [round(x, 1) for x in lat],
+               "gpu_mem_gb": _peak_gpu_mem_gb(),   # P14: economics headline
                "provenance": get_provenance(cfg)}
     if t_track is not None:
         payload["track_seconds"] = round(t_track, 2)
@@ -137,6 +160,7 @@ def main():
     validate(cfg, out_path=a.out)   # #27 - fail before spending minutes on a bad config
 
     t_all0 = time.time()
+    _reset_gpu_mem_stats()   # P14: peak memory measured from here, not from import time
 
     # the fit has to load BEFORE tracking - streaming mode needs the baselines
     # available from the first window

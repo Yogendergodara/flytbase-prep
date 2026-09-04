@@ -99,6 +99,14 @@ night:
   clahe_clip: 2.0          # KNOB: higher = more contrast AND more amplified noise
   clahe_grid: 8
 
+zones:
+  auto_classify: false     # KNOB: P17 - `python zones.py --auto` uses this
+                           # grid/floor by default; --grid/--confidence-floor
+                           # on the CLI override these, this is just the
+                           # documented default so the knob has one home
+  grid: [4, 4]
+  confidence_floor: 0.3
+
 reid:
   backend: none            # none | osnet
   model_name: osnet_x1_0
@@ -110,7 +118,7 @@ retrieve:
   top_k: 5
 
 vlm:
-  backend: none            # none | qwen | smolvlm
+  backend: none            # none | qwen | smolvlm | qwen_distilled
   model_id: Qwen/Qwen2.5-VL-3B-Instruct
   frames_per_event: 6      # KNOB: biggest latency lever after max_pixels
   max_pixels: 401408       # 512*28*28. KNOB: halve it, halve the latency
@@ -118,6 +126,11 @@ vlm:
   temperature: 0.0         # deterministic judgements (0 -> do_sample=False)
   load_4bit: true          # KNOB: ~7GB fp16 -> ~2.5GB. Needs bitsandbytes+CUDA
   smolvlm_model_id: HuggingFaceTB/SmolVLM2-2.2B-Instruct   # backend: smolvlm
+  distilled_adapter_path: null   # KNOB: backend: qwen_distilled - path to
+                                  # train/distill_vlm.py's --out directory.
+                                  # P18: only select this backend AFTER the
+                                  # mandatory A/B vs prompted `qwen` shows it
+                                  # wins (ENHANCEMENT_PLAN.md Phase 18 step 5)
 
 alerts:
   transport:
