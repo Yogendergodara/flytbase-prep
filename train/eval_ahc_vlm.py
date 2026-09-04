@@ -52,17 +52,16 @@ def _as_bool(v):
     return bool(v) if v is not None else None
 
 
-def predict(model, tokenizer, row, frames_root, max_pixels=401408, max_new_tokens=150):
-    from pathlib import Path
+def predict(model, tokenizer, row, frames_root, max_pixels=401408, max_frames=3, max_new_tokens=150):
     from PIL import Image
     import torch
-    from finetune_ahc_vlm import cap_pixels
-    # same relative-path convention as finetune_ahc_vlm.py's to_record -
-    # the manifest and the AHC_frames folder travel to Kaggle separately
-    paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p) for p in row["frame_paths"]]
-    # same pixel cap as training: scoring the adapter on differently-scaled
-    # frames than it was trained on would measure the wrong thing (and can
-    # overflow the context with 8 full-res frames)
+    from finetune_ahc_vlm import cap_pixels, resolve_paths
+    # same resolution AND same frame count as training: this model's real
+    # max_seq_length measured at 2048 on Kaggle, and 8 full frames alone
+    # exceed that - scoring with more frames than training used would not
+    # just mismatch preprocessing, it would feed the model something outside
+    # the context it was fit to.
+    paths = resolve_paths(row, frames_root, max_frames)
     images = [cap_pixels(Image.open(p).convert("RGB"), max_pixels) for p in paths]
     content = [{"type": "image", "image": im} for im in images]
     content.append({"type": "text", "text": AHC_PROMPT.format(classes=", ".join(AHC_CLASSES))})
@@ -75,7 +74,7 @@ def predict(model, tokenizer, row, frames_root, max_pixels=401408, max_new_token
     return _parse(raw)
 
 
-def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408):
+def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408, max_frames=3):
     n_correct_class = n_correct_anomaly = n_parsed = 0
     per_class = defaultdict(lambda: [0, 0])  # [correct, total]
     confusion = Counter()
@@ -85,7 +84,7 @@ def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408):
         # eval - the fine-tuned run is the number that matters and it comes
         # AFTER the base run, so an unhandled raise here throws away both.
         try:
-            pred = predict(model, tokenizer, row, frames_root, max_pixels)
+            pred = predict(model, tokenizer, row, frames_root, max_pixels, max_frames)
         except Exception as e:
             print(f"[eval] {row['video_id']} failed ({type(e).__name__}: {e}) "
                   f"- counted as unparsed")
@@ -143,6 +142,11 @@ def main():
                     help="must match finetune_ahc_vlm.py's --max-pixels - scoring "
                          "on differently-scaled frames than training used measures "
                          "the wrong thing")
+    ap.add_argument("--max-frames", type=int, default=3,
+                    help="must match finetune_ahc_vlm.py's --max-frames - this "
+                         "model's real max_seq_length measured at 2048, and more "
+                         "frames than training used both mismatches preprocessing "
+                         "and can exceed that context")
     ap.add_argument("--frames-root", default="datasets/AHC_frames",
                     help="where AHC_frames actually landed on THIS machine/Kaggle "
                          "session - same convention as finetune_ahc_vlm.py")
@@ -211,7 +215,7 @@ def main():
         base_model.eval()
         proc = load_proc(a.base)
         results["zero_shot_base"] = score(base_model, proc, test_rows,
-                                          "zero-shot base (no fine-tune)", a.frames_root, a.max_pixels)
+                                          "zero-shot base (no fine-tune)", a.frames_root, a.max_pixels, a.max_frames)
         # `del` alone does not return VRAM to the allocator, so the second
         # model load below would stack on top of the first and can OOM a
         # 15GB T4 - the adapter run is the one that matters, and losing it
@@ -243,7 +247,7 @@ def main():
     print(f"[eval] adapter attached: {n_lora} LoRA modules injected")
     proc = load_proc(a.adapter)
     results["finetuned"] = score(tuned_model, proc, test_rows,
-                                 f"fine-tuned ({a.adapter})", a.frames_root, a.max_pixels)
+                                 f"fine-tuned ({a.adapter})", a.frames_root, a.max_pixels, a.max_frames)
 
     if "zero_shot_base" in results:
         b, f = results["zero_shot_base"]["class_acc"], results["finetuned"]["class_acc"]

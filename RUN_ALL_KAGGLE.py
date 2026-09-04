@@ -279,9 +279,17 @@ def stage_ahc_train(force):
     # wraps the model in nn.DataParallel - which cannot replicate
     # bitsandbytes Params4bit across devices. Pinning to one GPU avoids
     # that class of failure outright, and this job fits in one T4 anyway.
+    # --max-seq-length 2048 / --max-frames 3: measured on Kaggle that Unsloth
+    # reports this model's real max as 2048 regardless of what is requested.
+    # 8 extracted frames at 512 tokens each is ~4,096 image tokens alone -
+    # already double the real limit. 4 frames (2,048) leaves ZERO room for
+    # the prompt/target text, which is still truncation, just relocated; 3
+    # frames (1,536) leaves ~500 tokens, comfortably above the ~180 the
+    # prompt + JSON target actually need.
     return sh(f'CUDA_VISIBLE_DEVICES=0 python train/finetune_ahc_vlm.py '
               f'--manifest train/ahc_manifest.jsonl '
               f'--frames-root "{WORK}/AHC_frames" --base Qwen/Qwen2.5-VL-3B-Instruct '
+              f'--max-seq-length 2048 --max-frames 3 '
               f'--out weights/qwen_ahc_lora --epochs 3', "AHC fine-tune")
 
 

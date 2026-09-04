@@ -106,13 +106,26 @@ def oversample(rows, min_per_class, max_oversample, seed):
     return out
 
 
-def resolve_paths(row, frames_root):
+def resolve_paths(row, frames_root, max_frames=None):
     """Manifest frame_paths are relative to wherever AHC_frames landed (the
     manifest and the frames travel to Kaggle separately). An already-absolute
-    path (an older manifest) is left alone rather than double-joined."""
+    path (an older manifest) is left alone rather than double-joined.
+
+    max_frames subsamples EVENLY across the extracted sequence (not just the
+    first N) so temporal coverage of the event is preserved rather than
+    truncated to its opening frames. Needed because Unsloth reported this
+    model's real max_seq_length as 2048 - 8 frames at ~512 tokens/frame is
+    ~4,096 tokens for images ALONE, already double that limit, so training
+    was silently truncating every example regardless of the max_pixels cap.
+    """
     from pathlib import Path
-    return [p if Path(p).is_absolute() else str(Path(frames_root) / p)
-            for p in row["frame_paths"]]
+    paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p)
+             for p in row["frame_paths"]]
+    if max_frames and len(paths) > max_frames:
+        idx = [round(i * (len(paths) - 1) / (max_frames - 1)) for i in range(max_frames)] \
+              if max_frames > 1 else [len(paths) // 2]
+        paths = [paths[i] for i in sorted(set(idx))]
+    return paths
 
 
 def _bf16_supported():
@@ -136,9 +149,11 @@ def cap_pixels(im, max_pixels):
     model learns from a partial example.
 
     max_pixels defaults to config.yaml's vlm.max_pixels (401408 = 512*28*28),
-    so an image costs at most ~512 tokens and eight fit in ~4,096 - the same
-    budget pipeline/vlm_judge.py already uses at inference, which also keeps
-    train-time and inference-time framing consistent.
+    so an image costs at most ~512 tokens - the same per-image budget
+    pipeline/vlm_judge.py already uses at inference. How many images that
+    budget allows is a separate question: see --max-frames, since this
+    model's real max_seq_length measured at 2048 on Kaggle, not the 8192
+    first assumed here.
     """
     w, h = im.size
     if w * h <= max_pixels:
@@ -147,7 +162,7 @@ def cap_pixels(im, max_pixels):
     return im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
 
 
-def to_record(row, frames_root, max_pixels=401408, flip=False):
+def to_record(row, frames_root, max_pixels=401408, flip=False, max_frames=None):
     """Decode one training example's frames and build its chat record.
 
     flip=True mirrors the frames in memory - no extra extraction, no extra
@@ -164,7 +179,7 @@ def to_record(row, frames_root, max_pixels=401408, flip=False):
     """
     from PIL import Image, ImageOps
     images = [cap_pixels(Image.open(p).convert("RGB"), max_pixels)
-              for p in resolve_paths(row, frames_root)]
+              for p in resolve_paths(row, frames_root, max_frames)]
     if flip:
         images = [ImageOps.mirror(im) for im in images]
     target = json.dumps({
@@ -184,7 +199,13 @@ def to_record(row, frames_root, max_pixels=401408, flip=False):
     }
 
 
-class LazyAHCDataset:
+try:
+    from torch.utils.data import Dataset as _TorchDataset
+except ImportError:
+    _TorchDataset = object   # only unavailable outside a training environment
+
+
+class LazyAHCDataset(_TorchDataset):
     """Decodes frames on __getitem__ instead of up front.
 
     This exists because the eager version - `[to_record(r) for r in split]` -
@@ -194,18 +215,21 @@ class LazyAHCDataset:
     was the problem: the dataset build alone exhausted system RAM before
     training could start.
 
-    Implements the torch Dataset protocol (__len__/__getitem__), which
-    transformers' Trainer accepts directly, so peak memory is
-    batch_size x frames_per_example instead of the whole corpus. `flip`
-    doubling is expressed as an index offset rather than a second
-    materialised list, for the same reason.
+    Subclasses torch.utils.data.Dataset (not just duck-typing __len__/
+    __getitem__): TRL and accelerate branch on isinstance(...,
+    torch.utils.data.Dataset) in more than one place, so there is no upside
+    to staying outside the real ABC.
+
+    `flip` doubling is expressed as an index offset rather than a second
+    materialised list, for the same memory reason as the class itself.
     """
 
-    def __init__(self, rows, frames_root, flip_augment, max_pixels=401408):
+    def __init__(self, rows, frames_root, flip_augment, max_pixels=401408, max_frames=None):
         self.rows = rows
         self.frames_root = frames_root
         self.flip_augment = flip_augment
         self.max_pixels = max_pixels
+        self.max_frames = max_frames
 
     def __len__(self):
         return len(self.rows) * (2 if self.flip_augment else 1)
@@ -223,8 +247,10 @@ class LazyAHCDataset:
         if idx >= len(self.rows):        # second half of the index space = flipped views
             row = self.rows[idx - len(self.rows)]
             flip = row["class_name"] not in self.NO_FLIP_CLASSES
-            return to_record(row, self.frames_root, self.max_pixels, flip=flip)
-        return to_record(self.rows[idx], self.frames_root, self.max_pixels, flip=False)
+            return to_record(row, self.frames_root, self.max_pixels, flip=flip,
+                             max_frames=self.max_frames)
+        return to_record(self.rows[idx], self.frames_root, self.max_pixels, flip=False,
+                         max_frames=self.max_frames)
 
 
 def drop_missing_frames(rows, frames_root, label):
@@ -267,16 +293,23 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--r", type=int, default=16, help="LoRA rank (primer's example: 16)")
     ap.add_argument("--val-fraction", type=float, default=0.12)
-    ap.add_argument("--max-seq-length", type=int, default=8192,
-                     help="raised from 4096 now that events carry 20 frames "
-                          "each instead of 8 - each image costs a non-trivial "
-                          "chunk of the sequence, so more frames/event needs "
-                          "more headroom here or training silently truncates "
-                          "images off the end of long examples. If this OOMs "
-                          "on a T4/P100, lower --frames-per-event in "
-                          "extract_ahc_frames.py and re-extract rather than "
-                          "just lowering this - a truncated example teaches "
-                          "the model to answer without seeing all its images.")
+    ap.add_argument("--max-seq-length", type=int, default=2048,
+                     help="Measured on Kaggle: Unsloth reports this Qwen2.5-VL-3B "
+                          "load's real max as 2048 and silently reduces anything "
+                          "higher passed here - it does NOT raise the ceiling, it "
+                          "clamps down to it. Requesting 8192 while the real cap "
+                          "is 2048 is why examples were being truncated even after "
+                          "max_pixels was capped: 8 frames' image tokens alone "
+                          "(~4,096) already exceeded 2048. Do not raise this above "
+                          "what Unsloth reports as the real maximum for your model")
+    ap.add_argument("--max-frames", type=int, default=3,
+                    help="use at most this many of each event's extracted frames, "
+                         "subsampled evenly for temporal coverage (not just the "
+                         "first N). Lowered from all 8 because 8 frames cannot fit "
+                         "under a 2048-token real limit regardless of --max-pixels - "
+                         "measured 4,096 image tokens for 8 frames vs a 2048 cap. "
+                         "This reads from the already-extracted files; it does not "
+                         "require re-running extract_ahc_frames.py.")
     ap.add_argument("--min-per-class", type=int, default=150,
                     help="oversample classes with fewer than this many examples. "
                          "Raised from 60 because at 60 only ONE class "
@@ -325,19 +358,27 @@ def main():
     print(f"[finetune] after oversampling: {len(train_split)} train events")
 
     # lazy, not eager: the eager version OOM-killed a whole Kaggle session
-    train_records = LazyAHCDataset(train_split, a.frames_root, a.flip_augment, a.max_pixels)
-    val_records = LazyAHCDataset(val_split, a.frames_root, False, a.max_pixels)
-    n_frames = len(train_split[0]["frame_paths"]) if train_split else 0
+    train_records = LazyAHCDataset(train_split, a.frames_root, a.flip_augment,
+                                   a.max_pixels, a.max_frames)
+    val_records = LazyAHCDataset(val_split, a.frames_root, False, a.max_pixels, a.max_frames)
+    n_extracted = len(train_split[0]["frame_paths"]) if train_split else 0
+    n_frames = min(n_extracted, a.max_frames) if a.max_frames else n_extracted
+    tokens_per_frame = a.max_pixels // 784
+    img_tokens = n_frames * tokens_per_frame
     print(f"[finetune] {len(train_records)} train examples"
           f"{' (flip-augmented 2x)' if a.flip_augment else ''}, "
           f"{len(val_records)} val examples - decoded lazily per batch")
-    print(f"[finetune] {n_frames} frames/example, capped at {a.max_pixels} px "
-          f"(~{a.max_pixels // 784} visual tokens each, ~{n_frames * a.max_pixels // 784} "
-          f"for the images) against --max-seq-length {a.max_seq_length}")
-    if n_frames * (a.max_pixels // 784) > a.max_seq_length * 0.8:
-        print(f"[finetune] WARNING: images alone may consume most of the sequence "
-              f"budget - examples risk truncation. Lower --max-pixels or "
-              f"re-extract with fewer --frames-per-crop.")
+    print(f"[finetune] using {n_frames} of {n_extracted} extracted frames/example "
+          f"(--max-frames {a.max_frames}), capped at {a.max_pixels} px "
+          f"(~{tokens_per_frame} visual tokens each, ~{img_tokens} total for images) "
+          f"against --max-seq-length {a.max_seq_length}")
+    if img_tokens > a.max_seq_length * 0.7:
+        print(f"[finetune] WARNING: ~{img_tokens} image tokens leaves little room "
+              f"for the {a.max_seq_length}-token budget once the prompt and JSON "
+              f"target are added - lower --max-frames or --max-pixels. This is not "
+              f"advisory: Unsloth will clamp a too-high --max-seq-length down to "
+              f"the model's real limit rather than raising it, so exceeding the "
+              f"real limit here means truncation, not a warning that goes away.")
 
     from unsloth import FastVisionModel
     from unsloth.trainer import UnslothVisionDataCollator
