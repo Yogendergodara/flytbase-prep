@@ -48,6 +48,7 @@ Confirmed against the real merged dataset before writing this (not guessed):
 import argparse
 import csv
 import json
+import shutil
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -234,6 +235,29 @@ def main():
     a = ap.parse_args()
 
     root, out = Path(a.root), Path(a.out)
+
+    if not root.is_dir():
+        raise SystemExit(
+            f"[extract] --root {root} does not exist. On Kaggle the dataset "
+            f"mount path is not the same as a local path - check "
+            f"`ls /kaggle/input/` and point --root at the folder that "
+            f"actually contains train/ and test/.")
+    if not (root / "train").is_dir():
+        raise SystemExit(
+            f"[extract] {root} exists but has no train/ subdirectory. "
+            f"Contents: {sorted(p.name for p in root.iterdir())[:10]}")
+
+    # A killed/partial run leaves frame files on disk but writes no manifest
+    # (the manifest is written once, at the end). A LATER run then produces a
+    # manifest that can reference the earlier run's leftovers - which is how
+    # a real fine-tune died on FileNotFoundError for a frame that was never
+    # written. Clearing first makes frames and manifest describe the same
+    # run. Same idempotency lesson as build_scene_classifier_dataset.py.
+    if not a.append and out.exists() and any(out.iterdir()):
+        print(f"[extract] clearing previous extraction at {out} so the frames "
+              f"and the manifest describe the same run")
+        shutil.rmtree(out)
+
     all_rows = []
 
     train_root = root / "train"

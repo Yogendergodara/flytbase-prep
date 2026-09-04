@@ -94,24 +94,32 @@ def oversample(rows, min_per_class, max_oversample, seed):
     return out
 
 
-def to_record(row, frames_root, flip=False):
-    """flip=True mirrors the frames IN MEMORY at record-build time - no extra
-    extraction, no extra disk files (extract_ahc_frames.py measured writing
-    each crop's frames to disk at ~21 files/sec on this machine; doing this
-    on-disk for every crop would have roughly doubled a ~30min extraction for
-    a transform that costs nothing done here). A mirrored collision is still
-    a collision for all 12 classes; the one caveat is a description that
-    names a direction ("moving left to right") would then contradict the
-    mirrored image - the AHC descriptions observed are not directional, but
-    this is a real, not fully eliminated, risk worth knowing about."""
+def resolve_paths(row, frames_root):
+    """Manifest frame_paths are relative to wherever AHC_frames landed (the
+    manifest and the frames travel to Kaggle separately). An already-absolute
+    path (an older manifest) is left alone rather than double-joined."""
     from pathlib import Path
+    return [p if Path(p).is_absolute() else str(Path(frames_root) / p)
+            for p in row["frame_paths"]]
+
+
+def to_record(row, frames_root, flip=False):
+    """Decode one training example's frames and build its chat record.
+
+    flip=True mirrors the frames in memory - no extra extraction, no extra
+    disk files (extract_ahc_frames.py measured writing each crop's frames to
+    disk at ~21 files/sec; materialising a flipped copy on disk would have
+    roughly doubled a ~30min extraction for a transform that is free here).
+    A mirrored collision is still a collision for all 12 classes; the one
+    caveat is a description naming a direction ("moving left to right")
+    would contradict the mirrored image - the AHC descriptions observed are
+    not directional, but that risk is real, not fully eliminated.
+
+    Called PER ITEM by LazyAHCDataset, never eagerly over the whole split -
+    see that class's docstring for why that distinction is load-bearing.
+    """
     from PIL import Image, ImageOps
-    # frame_paths in the manifest are relative to wherever AHC_frames landed
-    # (this may not be this machine - the manifest travels to Kaggle
-    # separately from the frames themselves). An already-absolute path
-    # (an older manifest) is left alone rather than double-joined.
-    paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p) for p in row["frame_paths"]]
-    images = [Image.open(p).convert("RGB") for p in paths]
+    images = [Image.open(p).convert("RGB") for p in resolve_paths(row, frames_root)]
     if flip:
         images = [ImageOps.mirror(im) for im in images]
     target = json.dumps({
@@ -129,6 +137,61 @@ def to_record(row, frames_root, flip=False):
             {"role": "assistant", "content": [{"type": "text", "text": target}]},
         ],
     }
+
+
+class LazyAHCDataset:
+    """Decodes frames on __getitem__ instead of up front.
+
+    This exists because the eager version - `[to_record(r) for r in split]` -
+    OOM-killed an entire Kaggle session. Each record holds 8 decoded PIL
+    images; over ~8,400 flip-augmented records that is ~67,000 decoded
+    images resident at once, tens of GB. Nothing about the model or the GPU
+    was the problem: the dataset build alone exhausted system RAM before
+    training could start.
+
+    Implements the torch Dataset protocol (__len__/__getitem__), which
+    transformers' Trainer accepts directly, so peak memory is
+    batch_size x frames_per_example instead of the whole corpus. `flip`
+    doubling is expressed as an index offset rather than a second
+    materialised list, for the same reason.
+    """
+
+    def __init__(self, rows, frames_root, flip_augment):
+        self.rows = rows
+        self.frames_root = frames_root
+        self.flip_augment = flip_augment
+
+    def __len__(self):
+        return len(self.rows) * (2 if self.flip_augment else 1)
+
+    def __getitem__(self, idx):
+        if idx >= len(self.rows):        # second half of the index space = flipped views
+            return to_record(self.rows[idx - len(self.rows)], self.frames_root, flip=True)
+        return to_record(self.rows[idx], self.frames_root, flip=False)
+
+
+def drop_missing_frames(rows, frames_root, label):
+    """Drop rows whose frame files are not on disk, and say how many.
+
+    A single missing frame used to raise FileNotFoundError mid-run - after
+    the model was loaded and training had begun - throwing away the whole
+    job over one bad row. That happened for real: an interrupted extraction
+    left a manifest referencing frames it never finished writing. Checking
+    up front costs one stat() per frame and converts a hard crash into a
+    counted, reported skip.
+    """
+    import os
+    keep, dropped = [], 0
+    for r in rows:
+        if all(os.path.exists(p) for p in resolve_paths(r, frames_root)):
+            keep.append(r)
+        else:
+            dropped += 1
+    if dropped:
+        print(f"[finetune] {label}: dropped {dropped} of {len(rows)} rows - frame "
+              f"files missing on disk (incomplete extraction?). Re-run "
+              f"extract_ahc_frames.py if this number is large.")
+    return keep
 
 
 def main():
@@ -176,6 +239,14 @@ def main():
     print(f"[finetune] {len(train_rows)} train events, {len(test_rows)} held-out "
           f"test events (test is NEVER used here - eval_ahc_vlm.py handles that)")
 
+    # validate before loading a 3B model, not after - see drop_missing_frames
+    train_rows = drop_missing_frames(train_rows, a.frames_root, "train")
+    if not train_rows:
+        raise SystemExit(
+            f"[finetune] every train row's frames are missing under "
+            f"--frames-root {a.frames_root}. Either that path is wrong, or "
+            f"extract_ahc_frames.py never finished - re-run it before this.")
+
     train_split, val_split = video_level_split(train_rows, a.val_fraction, a.seed)
     print(f"[finetune] video-level split: {len(train_split)} train events, "
           f"{len(val_split)} val events")
@@ -183,12 +254,12 @@ def main():
     train_split = oversample(train_split, a.min_per_class, a.max_oversample, a.seed)
     print(f"[finetune] after oversampling: {len(train_split)} train events")
 
-    train_records = [to_record(r, a.frames_root) for r in train_split]
-    if a.flip_augment:
-        train_records += [to_record(r, a.frames_root, flip=True) for r in train_split]
-        print(f"[finetune] flip-augmented: {len(train_split)} -> {len(train_records)} "
-              f"train examples (val/test never flipped)")
-    val_records = [to_record(r, a.frames_root) for r in val_split]
+    # lazy, not eager: the eager version OOM-killed a whole Kaggle session
+    train_records = LazyAHCDataset(train_split, a.frames_root, a.flip_augment)
+    val_records = LazyAHCDataset(val_split, a.frames_root, flip_augment=False)
+    print(f"[finetune] {len(train_records)} train examples"
+          f"{' (flip-augmented 2x)' if a.flip_augment else ''}, "
+          f"{len(val_records)} val examples - decoded lazily per batch")
 
     from unsloth import FastVisionModel
     from unsloth.trainer import UnslothVisionDataCollator
