@@ -147,7 +147,15 @@ def main():
         proc = AutoProcessor.from_pretrained(a.base)
         results["zero_shot_base"] = score(base_model, proc, test_rows,
                                           "zero-shot base (no fine-tune)", a.frames_root, a.max_pixels)
+        # `del` alone does not return VRAM to the allocator, so the second
+        # model load below would stack on top of the first and can OOM a
+        # 15GB T4 - the adapter run is the one that matters, and losing it
+        # to a memory error after the base run already succeeded would be
+        # an avoidable waste.
         del base_model
+        import gc, torch
+        gc.collect()
+        torch.cuda.empty_cache()
 
     tuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         a.base, device_map="auto", torch_dtype="auto")

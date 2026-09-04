@@ -117,7 +117,84 @@ def _find_flooded_folders(root):
     return flooded, non_flooded
 
 
-def build_floodnet(root, flood_pixel_values, out, val_frac, seed):
+def _harvest_track2(root, flood_pixel_values, scene_to_items):
+    """Add FloodNet Track-2 (segmentation) images, labelled from their masks.
+
+    Track 1's labelled split alone yielded only 51 flooded images in the
+    Kaggle copy of this dataset - which produced a flood class of 43 train /
+    8 val, far too few to learn. Track 2 is a second, larger set of the same
+    post-hurricane imagery (~2k images) with per-pixel masks, so its flood
+    labels can be derived rather than guessed.
+
+    Mask class ids follow FloodNet's published Track-2 schema:
+        0 Background        1 Building-flooded   2 Building-non-flooded
+        3 Road-flooded      4 Road-non-flooded   5 Water
+        6 Tree              7 Vehicle            8 Pool   9 Grass
+    so FLOOD means 1 (building-flooded) or 3 (road-flooded). Note 5 (Water)
+    is deliberately NOT flood - a river or pool is ordinary water, and
+    counting it would label dry scenes as flooded.
+
+    Returns the number of images added. Track 2 masks are not present in
+    every re-upload, so a miss is reported and skipped, never guessed at.
+    """
+    img_dirs, mask_dirs = [], []
+    for d in root.rglob("*"):
+        if not d.is_dir():
+            continue
+        n = d.name.lower()
+        if "track 2" not in str(d).lower() and "track2" not in str(d).lower():
+            continue
+        if any(k in n for k in ("mask", "label", "annotation")):
+            mask_dirs.append(d)
+        elif "image" in n or "img" in n:
+            img_dirs.append(d)
+
+    if not img_dirs:
+        return 0
+    if not mask_dirs:
+        print(f"[scene-hazard] FloodNet Track-2: found {len(img_dirs)} image dir(s) "
+              f"but no mask/label dir - cannot derive flood labels from them, "
+              f"skipping (Track-2 masks are absent from some re-uploads)")
+        return 0
+
+    masks = {}
+    for md in mask_dirs:
+        for p in md.rglob("*"):
+            if p.suffix.lower() in (".png", ".tif", ".tiff"):
+                masks[p.stem.replace("_lab", "")] = p
+
+    # Dedupe by resolved path: nested dirs both match the name filter
+    # (FloodNet ships Images/Train_Image/, so "Images" AND "Train_Image"
+    # both qualify and rglob'ing each counted every file twice - measured
+    # 80 "added" for 40 real files before this).
+    candidates = {}
+    for idir in img_dirs:
+        for p in idir.rglob("*"):
+            if p.suffix.lower() in IMG_EXT:
+                candidates[p.resolve()] = p
+
+    flood_vals = list(set(flood_pixel_values))
+    added, n_flood = 0, 0
+    for img_path in sorted(candidates.values()):
+        mp = masks.get(img_path.stem) or masks.get(img_path.stem.replace("_lab", ""))
+        if mp is None:
+            continue
+        try:
+            mask = np.array(Image.open(mp))
+        except Exception:
+            continue
+        label = "flood" if np.isin(mask, flood_vals).mean() > 0.02 else "normal"
+        n_flood += label == "flood"
+        # key by stem so Track-1 and Track-2 copies of the same scene
+        # cannot land on opposite sides of the split
+        scene_to_items[img_path.stem].append((img_path, label))
+        added += 1
+    print(f"[scene-hazard] FloodNet Track-2: +{added} images from masks "
+          f"(flood pixel values {flood_vals}) -> {n_flood} flood, {added - n_flood} normal")
+    return added
+
+
+def build_floodnet(root, flood_pixel_values, out, val_frac, seed, use_track2=True):
     root = Path(root)
     flooded_dir, non_flooded_dir = _find_flooded_folders(root)
     scene_to_items = defaultdict(list)
@@ -163,6 +240,12 @@ def build_floodnet(root, flood_pixel_values, out, val_frac, seed):
             frac_flood = np.isin(mask, list(flood_vals)).mean()
             label = "flood" if frac_flood > 0.02 else "normal"
             scene_to_items[img_path.stem].append((img_path, label))
+
+    # Track 2 is additive, not a fallback: Track 1's labelled split is too
+    # small on its own (51 flooded images -> a 43/8 flood class), and Track 2
+    # covers the same imagery with masks that give real labels.
+    if use_track2:
+        _harvest_track2(root, flood_pixel_values, scene_to_items)
 
     train_keys, val_keys = split_scenes(scene_to_items, val_frac, seed, "FloodNet")
     counts = Counter()
@@ -302,10 +385,18 @@ def main():
                           "check the release's data.yaml/classes.txt and correct this "
                           "if the printed counts look inverted")
     ap.add_argument("--fasdd-smoke-id", type=int, default=1)
-    ap.add_argument("--flood-pixel-values", default="4,5",
-                     help="fallback only, used if FloodNet's Track-1 classification "
-                          "folders aren't found - comma-separated mask pixel values "
-                          "meaning 'flooded', VERIFY against your release's class list")
+    ap.add_argument("--flood-pixel-values", default="1,3",
+                     help="mask pixel values that mean FLOODED, per FloodNet's "
+                          "published Track-2 schema: 1=Building-flooded, "
+                          "3=Road-flooded. This previously defaulted to '4,5', "
+                          "which is Road-NON-flooded + Water - i.e. it would have "
+                          "labelled dry roads and swimming pools as flood. Water (5) "
+                          "is excluded on purpose: a river or pool is ordinary. "
+                          "Verify against your release if its class list differs.")
+    ap.add_argument("--no-track2", dest="use_track2", action="store_false", default=True,
+                     help="skip FloodNet Track-2 (segmentation) images. They are "
+                          "included by default because Track 1 alone yields far too "
+                          "few flood examples to learn from.")
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--keep-existing", action="store_true",
                      help="don't clear a previous build first (default is to clear, so a "
@@ -321,7 +412,7 @@ def main():
     total = Counter()
     if a.floodnet:
         vals = [int(v) for v in a.flood_pixel_values.split(",")]
-        total += build_floodnet(a.floodnet, vals, out, a.val_frac, a.seed)
+        total += build_floodnet(a.floodnet, vals, out, a.val_frac, a.seed, a.use_track2)
     if a.fasdd:
         total += build_fasdd(a.fasdd, out, a.val_frac, a.seed, a.fasdd_fire_id, a.fasdd_smoke_id)
     if a.dfire:

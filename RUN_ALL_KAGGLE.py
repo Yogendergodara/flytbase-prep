@@ -131,14 +131,21 @@ def find_ahc_root(slug="yogendergodara/ahc-frames"):
 
 
 def _floodnet_from(root):
-    """FloodNet's Track-1 labelled split is nested several folders deep and
-    the exact casing/spacing varies by upload, so find the folder that
-    actually holds the Flooded/Non-Flooded pair rather than guessing a path."""
+    """Return the FloodNet DATASET ROOT, not the Track-1 labelled folder.
+
+    build_scene_classifier_dataset.py finds Track-1's Flooded/Non-Flooded
+    pair by recursive search, and separately harvests Track-2's
+    mask-labelled images - but Track 2 is a SIBLING of Track 1, so handing
+    it the deep `Track 1/Train/Labeled` path (as this used to) hid Track 2
+    entirely. That mattered: Track 1 alone gives only 51 flooded images.
+    Verify the root actually contains a Flooded dir somewhere before
+    accepting it, so a wrong folder fails loudly instead of yielding zero.
+    """
     if root is None:
         return None
     for d in root.rglob("*"):
         if d.is_dir() and d.name.lower().replace("-", " ") == "flooded":
-            return d.parent          # the folder containing Flooded/ + Non-Flooded/
+            return root
     return root
 
 
