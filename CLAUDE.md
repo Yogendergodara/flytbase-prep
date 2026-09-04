@@ -56,6 +56,21 @@ is the highest-value accuracy action available - more valuable than any
 frame-sampling or augmentation change. Missing ids are listed in
 `out/ahc_missing.txt`.
 
+**Two more real bugs found by dataset-quality checks, both fixed:** (1) test
+rows stored `class_name="__test__"` (the folder placeholder) instead of the
+real per-row class from ground_truth.csv - would have broken
+`eval_ahc_vlm.py`'s entire per-class scoring silently. (2) manifest
+`frame_paths` were absolute Windows paths (`F:\hackthone\...`), which does
+not exist on Kaggle, AND used backslashes, which POSIX `pathlib` treats as a
+literal filename character rather than a separator - would have failed
+silently on Kaggle even after fixing the absolute-path issue alone. Fixed:
+paths are now relative POSIX-style (`fire/TR001__evt0__c0/frame_00.jpg`),
+joined with a new `--frames-root` flag in both `finetune_ahc_vlm.py` and
+`eval_ahc_vlm.py` at load time. Also fixed: 7 events with `start_time_sec ==
+end_time_sec` in the source CSV produced 8 identical duplicate frames
+instead of a sequence - now padded ±1.5s around the instant (only for the
+true zero-duration case, not legitimately-short real events).
+
 **Full extraction completed and verified (2026-09-04):** `train/ahc_manifest.jsonl`
 now has **4,220 train examples** from the 1,494 real distinct events (2.82x
 via 3 crops/event), **32 held-out test examples** (uncropped/unaugmented),

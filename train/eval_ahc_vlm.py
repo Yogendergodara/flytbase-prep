@@ -39,10 +39,14 @@ def _parse(raw):
         return None
 
 
-def predict(model, tokenizer, row, max_new_tokens=150):
+def predict(model, tokenizer, row, frames_root, max_new_tokens=150):
+    from pathlib import Path
     from PIL import Image
     import torch
-    images = [Image.open(p).convert("RGB") for p in row["frame_paths"]]
+    # same relative-path convention as finetune_ahc_vlm.py's to_record -
+    # the manifest and the AHC_frames folder travel to Kaggle separately
+    paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p) for p in row["frame_paths"]]
+    images = [Image.open(p).convert("RGB") for p in paths]
     content = [{"type": "image", "image": im} for im in images]
     content.append({"type": "text", "text": AHC_PROMPT.format(classes=", ".join(AHC_CLASSES))})
     messages = [{"role": "user", "content": content}]
@@ -54,12 +58,12 @@ def predict(model, tokenizer, row, max_new_tokens=150):
     return _parse(raw)
 
 
-def score(model, tokenizer, test_rows, label):
+def score(model, tokenizer, test_rows, label, frames_root):
     n_correct_class = n_correct_anomaly = n_parsed = 0
     per_class = defaultdict(lambda: [0, 0])  # [correct, total]
     confusion = Counter()
     for row in test_rows:
-        pred = predict(model, tokenizer, row)
+        pred = predict(model, tokenizer, row, frames_root)
         truth_cls = row["class_name"]
         per_class[truth_cls][1] += 1
         if pred is None:
@@ -98,6 +102,9 @@ def main():
                     help="skip the zero-shot base-model comparison run (faster, "
                          "but then the adapter's number has nothing to compare against)")
     ap.add_argument("--out", default="out/ahc_eval.json")
+    ap.add_argument("--frames-root", default="datasets/AHC_frames",
+                    help="where AHC_frames actually landed on THIS machine/Kaggle "
+                         "session - same convention as finetune_ahc_vlm.py")
     a = ap.parse_args()
 
     test_rows = load_test_rows(a.manifest)
@@ -113,7 +120,7 @@ def main():
             a.base, device_map="auto", torch_dtype="auto")
         base_model.eval()
         proc = AutoProcessor.from_pretrained(a.base)
-        results["zero_shot_base"] = score(base_model, proc, test_rows, "zero-shot base (no fine-tune)")
+        results["zero_shot_base"] = score(base_model, proc, test_rows, "zero-shot base (no fine-tune)", a.frames_root)
         del base_model
 
     tuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
@@ -121,7 +128,7 @@ def main():
     tuned_model = PeftModel.from_pretrained(tuned_model, a.adapter)
     tuned_model.eval()
     proc = AutoProcessor.from_pretrained(a.base)
-    results["finetuned"] = score(tuned_model, proc, test_rows, f"fine-tuned ({a.adapter})")
+    results["finetuned"] = score(tuned_model, proc, test_rows, f"fine-tuned ({a.adapter})", a.frames_root)
 
     if "zero_shot_base" in results:
         b, f = results["zero_shot_base"]["class_acc"], results["finetuned"]["class_acc"]

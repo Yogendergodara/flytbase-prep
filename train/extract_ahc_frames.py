@@ -157,10 +157,18 @@ def process_class(cls_dir, cls_name, out_dir, args, is_test):
                 for j, f in enumerate(frames):
                     p = evt_dir / f"frame_{j:02d}.jpg"
                     Image.fromarray(np.ascontiguousarray(f)).save(p, quality=90)
-                    # absolute, not relative - the fine-tune and eval steps
-                    # may run from a different cwd (another Kaggle cell,
-                    # another machine) than this extraction did
-                    frame_paths.append(str(p.resolve()))
+                    # relative to --out, NOT absolute: this manifest gets
+                    # uploaded to Kaggle alongside the AHC_frames folder, and
+                    # an absolute local-machine path (F:\hackthone\...) does
+                    # not exist there. finetune_ahc_vlm.py / eval_ahc_vlm.py
+                    # join this back with --frames-root at load time.
+                    # .as_posix(), NOT str(): this repo builds on Windows but
+                    # trains on Kaggle (Linux) - a Windows relative path
+                    # stringifies with backslashes, which POSIX pathlib
+                    # treats as a literal filename character, not a
+                    # separator, so the join on Kaggle would silently look
+                    # for one file with backslashes IN its name and fail.
+                    frame_paths.append(p.resolve().relative_to(out_dir.resolve()).as_posix())
 
                 manifest_rows.append({
                     "video_id": video_id, "event_index": i, "crop_index": c,

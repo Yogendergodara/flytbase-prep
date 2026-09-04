@@ -94,7 +94,7 @@ def oversample(rows, min_per_class, max_oversample, seed):
     return out
 
 
-def to_record(row, flip=False):
+def to_record(row, frames_root, flip=False):
     """flip=True mirrors the frames IN MEMORY at record-build time - no extra
     extraction, no extra disk files (extract_ahc_frames.py measured writing
     each crop's frames to disk at ~21 files/sec on this machine; doing this
@@ -104,8 +104,14 @@ def to_record(row, flip=False):
     names a direction ("moving left to right") would then contradict the
     mirrored image - the AHC descriptions observed are not directional, but
     this is a real, not fully eliminated, risk worth knowing about."""
+    from pathlib import Path
     from PIL import Image, ImageOps
-    images = [Image.open(p).convert("RGB") for p in row["frame_paths"]]
+    # frame_paths in the manifest are relative to wherever AHC_frames landed
+    # (this may not be this machine - the manifest travels to Kaggle
+    # separately from the frames themselves). An already-absolute path
+    # (an older manifest) is left alone rather than double-joined.
+    paths = [p if Path(p).is_absolute() else str(Path(frames_root) / p) for p in row["frame_paths"]]
+    images = [Image.open(p).convert("RGB") for p in paths]
     if flip:
         images = [ImageOps.mirror(im) for im in images]
     target = json.dumps({
@@ -128,6 +134,11 @@ def to_record(row, flip=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default="train/ahc_manifest.jsonl")
+    ap.add_argument("--frames-root", default="datasets/AHC_frames",
+                    help="where the AHC_frames folder actually landed on THIS "
+                         "machine/Kaggle session - the manifest's frame_paths "
+                         "are relative to this, not absolute, since the "
+                         "manifest and the frames travel separately")
     ap.add_argument("--base", default="Qwen/Qwen2.5-VL-3B-Instruct",
                     help="matches config.yaml's vlm.model_id, so this adapter "
                          "can later attach to the same base pipeline/vlm_judge.py loads")
@@ -172,12 +183,12 @@ def main():
     train_split = oversample(train_split, a.min_per_class, a.max_oversample, a.seed)
     print(f"[finetune] after oversampling: {len(train_split)} train events")
 
-    train_records = [to_record(r) for r in train_split]
+    train_records = [to_record(r, a.frames_root) for r in train_split]
     if a.flip_augment:
-        train_records += [to_record(r, flip=True) for r in train_split]
+        train_records += [to_record(r, a.frames_root, flip=True) for r in train_split]
         print(f"[finetune] flip-augmented: {len(train_split)} -> {len(train_records)} "
               f"train examples (val/test never flipped)")
-    val_records = [to_record(r) for r in val_split]
+    val_records = [to_record(r, a.frames_root) for r in val_split]
 
     from unsloth import FastVisionModel
     from unsloth.trainer import UnslothVisionDataCollator
