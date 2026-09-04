@@ -175,10 +175,26 @@ def stage_hazard_dataset(force):
               "hazard dataset")
 
 
+def hazard_ckpt():
+    """Ultralytics resolves project= against its own runs_dir setting, so
+    `project=weights name=scene_hazard` actually landed in
+    runs/classify/weights/scene_hazard/ - not weights/scene_hazard/ as the
+    arguments suggest. Checking only the literal path meant a finished model
+    looked missing and got retrained for another 20 minutes. Search both."""
+    for pat in ("weights/scene_hazard/weights/best.pt",
+                "runs/classify/weights/scene_hazard/weights/best.pt",
+                "runs/classify/*/scene_hazard*/weights/best.pt",
+                "**/scene_hazard*/weights/best.pt"):
+        hits = sorted(REPO.glob(pat))
+        if hits:
+            return hits[0]
+    return None
+
+
 def stage_hazard_train(force):
-    ckpt = REPO / "weights/scene_hazard/weights/best.pt"
-    if ckpt.exists() and not force:
-        log("Model 2 already trained - skipping")
+    found = hazard_ckpt()
+    if found and not force:
+        log(f"Model 2 already trained ({found.relative_to(REPO)}) - skipping")
         return True
     if not (WORK / "scene_hazard").exists():
         return False
@@ -202,7 +218,7 @@ def stage_ahc_extract(force):
               "nor downloadable. Check the slug, or attach it manually: "
               "Add Input -> Datasets -> ahc-frames.")
         return False
-    log(f"Model 3: extracting frames from {root} (~30-40 min, CPU only)")
+    log(f"Model 3: extracting frames from {root} (~75 min measured on Kaggle, CPU only)")
     return sh(f'python train/extract_ahc_frames.py --root "{root}" '
               f'--out "{frames}" --frames-per-crop 8 --crops-per-event 3 '
               f'--manifest train/ahc_manifest.jsonl', "AHC extraction")
@@ -282,10 +298,14 @@ def main():
 
     print("\n[run-all] artifacts to DOWNLOAD before the session ends "
           "(/kaggle/working is wiped):")
-    for p in ["weights/scene_hazard/weights/best.pt", "weights/qwen_ahc_lora",
-              "out/ahc_eval.json", "weights/aerial_v2/weights/best.pt"]:
-        full = REPO / p
-        print(f"  {'[x]' if full.exists() else '[ ]'} {p}")
+    hz = hazard_ckpt()
+    print(f"  {'[x]' if hz else '[ ]'} "
+          f"{hz.relative_to(REPO) if hz else 'scene_hazard best.pt (Model 2)'}")
+    for p in ["weights/qwen_ahc_lora", "out/ahc_eval.json"]:
+        print(f"  {'[x]' if (REPO / p).exists() else '[ ]'} {p}")
+    aerial = sorted(REPO.glob("**/aerial_v2*/weights/best.pt"))
+    print(f"  {'[x]' if aerial else '[ ]'} "
+          f"{aerial[0].relative_to(REPO) if aerial else 'aerial_v2 best.pt (Model 1, optional)'}")
 
     if not a.with_aerial:
         print("\n[run-all] Model 1 (aerial detector) was NOT retrained - a "

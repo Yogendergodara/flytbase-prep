@@ -339,18 +339,29 @@ def main():
     # train_on_responses_only comes from the hackathon primer's own tip: loss
     # is then computed on the assistant answer only, not on the (identical
     # for every example) prompt. That matters for accuracy - without it a
-    # large share of the loss is spent re-predicting boilerplate. The kwarg
-    # name is not stable across Unsloth versions, so fall back rather than
-    # dying at startup, and SAY which path was taken instead of leaving it
-    # ambiguous whether the masking is actually on.
+    # large share of the loss is spent re-predicting boilerplate.
+    #
+    # This Unsloth version accepts the flag but then ASSERTS that
+    # instruction_part/response_part are also given (unsloth_zoo
+    # vision_utils.py: `assert(isinstance(instruction_part, str) and ...)`),
+    # so passing the flag alone raised AssertionError - after 100 minutes of
+    # extraction had already been spent. Pass Qwen's ChatML turn markers
+    # explicitly, and catch AssertionError as well as TypeError so a
+    # differently-shaped API degrades to plain collation instead of throwing
+    # away the whole run.
     try:
-        collator = UnslothVisionDataCollator(model, tokenizer, train_on_responses_only=True)
+        collator = UnslothVisionDataCollator(
+            model, tokenizer,
+            train_on_responses_only=True,
+            instruction_part="<|im_start|>user\n",
+            response_part="<|im_start|>assistant\n",
+        )
         print("[finetune] collator: train_on_responses_only=True (loss on answer only)")
-    except TypeError:
+    except (TypeError, AssertionError) as e:
         collator = UnslothVisionDataCollator(model, tokenizer)
-        print("[finetune] collator: this Unsloth version does not accept "
-              "train_on_responses_only - loss also covers the prompt tokens. "
-              "Training still works; expect slightly worse convergence.")
+        print(f"[finetune] collator: response-only masking unavailable on this "
+              f"Unsloth build ({type(e).__name__}) - loss also covers prompt "
+              f"tokens. Training still works; expect slightly worse convergence.")
 
     trainer = SFTTrainer(
         model=model, tokenizer=tokenizer,
