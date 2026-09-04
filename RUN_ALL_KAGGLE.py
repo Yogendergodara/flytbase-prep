@@ -5,16 +5,15 @@ Paste this into a single Kaggle cell and run it:
     !git clone -b enhancements https://github.com/Yogendergodara/flytbase-prep.git /kaggle/working/flytbase-prep 2>/dev/null; \
      cd /kaggle/working/flytbase-prep && git pull -q && python RUN_ALL_KAGGLE.py
 
-Nothing else to do by hand. It finds the attached datasets itself (their
-mount paths differ depending on whether they were attached through the UI or
-fetched with kagglehub, which has broken several runs already), builds both
-datasets, trains all models, evaluates, and prints a final report.
+Nothing else to do by hand. Datasets are located if attached and DOWNLOADED
+if not, so no UI attachment is required - a forgotten attachment silently
+skipped the main model on a real run, and mount paths differ between
+UI-attached (/kaggle/input/<slug>/) and kagglehub-fetched
+(/kaggle/input/datasets/<owner>/<slug>/) datasets, which has broken others.
 
-REQUIRED, one-time, in the Kaggle UI - these cannot be scripted:
-  1. Session options -> Accelerator -> GPU T4 x2
-  2. Add Input -> Datasets -> attach:  ahc-frames  (raw AHC videos)
-  3. Add Input -> Datasets -> attach:  the FloodNet challenge dataset
-  4. Add Input -> Datasets -> attach:  d-fire
+THE ONLY MANUAL STEP: Session options -> Accelerator -> GPU T4 x2.
+Attaching the datasets is optional (it just saves the download time):
+  ahc-frames (raw AHC videos), the FloodNet challenge dataset, d-fire
 
 Stages run SEQUENTIALLY on purpose. Running the classifier and the VLM
 together crashed a whole Kaggle session ("tried to allocate more memory than
@@ -83,20 +82,58 @@ def find_dir(*name_fragments, must_contain=None):
     return None
 
 
-def find_ahc_root():
-    """The AHC dataset must expose train/ and test/ - it has been uploaded
-    both with and without an AHC_full/ wrapper folder."""
-    base = find_dir("ahc", must_contain=["AHC_full", "train"])
+def kagglehub_fetch(slug):
+    """Download a dataset by slug when it isn't attached to this notebook.
+
+    Dataset attachments do not carry over between notebooks, and forgetting
+    one silently skipped the main model on a real run. Downloading is the
+    difference between "you must remember a UI step" and "it just works":
+    inside a Kaggle notebook the session is already authenticated as the
+    owner, so this reaches private datasets too.
+    """
+    try:
+        import kagglehub
+    except ImportError:
+        subprocess.call(f"{sys.executable} -m pip install -q kagglehub", shell=True)
+        try:
+            import kagglehub
+        except ImportError:
+            print("[run-all] kagglehub unavailable - cannot auto-download")
+            return None
+    try:
+        print(f"[run-all] {slug} not attached - downloading with kagglehub "
+              f"(this can take several minutes for a large dataset)", flush=True)
+        return Path(kagglehub.dataset_download(slug))
+    except Exception as e:
+        print(f"[run-all] could not download {slug}: {type(e).__name__}: {e}")
+        return None
+
+
+def _ahc_from(base):
+    """The AHC dataset has been uploaded both with and without an AHC_full/
+    wrapper, so accept either shape rather than assuming one."""
     if base is None:
         return None
-    return base / "AHC_full" if (base / "AHC_full" / "train").is_dir() else base
+    for cand in (base / "AHC_full", base):
+        if (cand / "train").is_dir():
+            return cand
+    for sub in base.rglob("*"):          # tolerate a deeper wrapper folder
+        if sub.is_dir() and (sub / "train").is_dir() and (sub / "test").is_dir():
+            return sub
+    return None
 
 
-def find_floodnet():
+def find_ahc_root(slug="yogendergodara/ahc-frames"):
+    found = _ahc_from(find_dir("ahc", must_contain=["AHC_full", "train"]))
+    if found is not None:
+        return found
+    return _ahc_from(kagglehub_fetch(slug))
+
+
+def _floodnet_from(root):
     """FloodNet's Track-1 labelled split is nested several folders deep and
     the exact casing/spacing varies by upload, so find the folder that
-    actually holds the Flooded/Non-Flooded pair."""
-    root = find_dir("floodnet")
+    actually holds the Flooded/Non-Flooded pair rather than guessing a path."""
     if root is None:
         return None
     for d in root.rglob("*"):
@@ -105,18 +142,31 @@ def find_floodnet():
     return root
 
 
+def find_floodnet(slug="aletbm/aerial-imagery-dataset-floodnet-challenge"):
+    found = _floodnet_from(find_dir("floodnet"))
+    if found is not None:
+        return found
+    return _floodnet_from(kagglehub_fetch(slug))
+
+
+def find_dfire(slug="shubhamkarande13/d-fire"):
+    found = (find_dir("d-fire", must_contain=["train", "test"])
+             or find_dir("dfire", must_contain=["train", "test"])
+             or find_dir("d-fire") or find_dir("dfire"))
+    if found is not None:
+        return found
+    return kagglehub_fetch(slug)
+
+
 def stage_hazard_dataset(force):
     out = WORK / "scene_hazard"
     if out.exists() and any(out.rglob("*.jpg")) and not force:
         log("Model 2 dataset already built - skipping")
         return True
-    floodnet = find_floodnet()
-    dfire = (find_dir("d-fire", must_contain=["train", "test"])
-             or find_dir("dfire", must_contain=["train", "test"])
-             or find_dir("d-fire") or find_dir("dfire"))
+    floodnet, dfire = find_floodnet(), find_dfire()
     if floodnet is None or dfire is None:
-        print(f"[run-all] SKIP Model 2 - dataset not attached "
-              f"(floodnet={floodnet}, d-fire={dfire}). Attach them and re-run.")
+        print(f"[run-all] SKIP Model 2 - could not find or download its datasets "
+              f"(floodnet={floodnet}, d-fire={dfire}).")
         return False
     log("Model 2: building fire/smoke/flood dataset")
     WORK.mkdir(parents=True, exist_ok=True)
@@ -148,8 +198,9 @@ def stage_ahc_extract(force):
         return True
     root = find_ahc_root()
     if root is None:
-        print("[run-all] SKIP Model 3 - the AHC dataset is not attached. "
-              "Add Input -> Datasets -> ahc-frames, then re-run.")
+        print("[run-all] SKIP Model 3 - the AHC dataset was neither attached "
+              "nor downloadable. Check the slug, or attach it manually: "
+              "Add Input -> Datasets -> ahc-frames.")
         return False
     log(f"Model 3: extracting frames from {root} (~30-40 min, CPU only)")
     return sh(f'python train/extract_ahc_frames.py --root "{root}" '
@@ -209,7 +260,7 @@ def main():
           f"{sorted(p.name for p in INPUT.glob('*')) if INPUT.exists() else 'NOTHING'}")
     print(f"[run-all] resolved AHC root : {find_ahc_root()}")
     print(f"[run-all] resolved FloodNet : {find_floodnet()}")
-    print(f"[run-all] resolved D-Fire   : {find_dir('d-fire') or find_dir('dfire')}")
+    print(f"[run-all] resolved D-Fire   : {find_dfire()}")
 
     results = {}
     results["model2_dataset"] = stage_hazard_dataset(a.force)
