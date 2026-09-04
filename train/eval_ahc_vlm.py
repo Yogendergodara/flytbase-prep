@@ -79,8 +79,17 @@ def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408):
     n_correct_class = n_correct_anomaly = n_parsed = 0
     per_class = defaultdict(lambda: [0, 0])  # [correct, total]
     confusion = Counter()
+    n_errors = 0
     for row in test_rows:
-        pred = predict(model, tokenizer, row, frames_root, max_pixels)
+        # One truncated JPEG or one CUDA OOM must not discard a completed
+        # eval - the fine-tuned run is the number that matters and it comes
+        # AFTER the base run, so an unhandled raise here throws away both.
+        try:
+            pred = predict(model, tokenizer, row, frames_root, max_pixels)
+        except Exception as e:
+            print(f"[eval] {row['video_id']} failed ({type(e).__name__}: {e}) "
+                  f"- counted as unparsed")
+            pred, n_errors = None, n_errors + 1
         truth_cls = row["class_name"]
         per_class[truth_cls][1] += 1
         if pred is None:
@@ -102,10 +111,17 @@ def score(model, tokenizer, test_rows, label, frames_root, max_pixels=401408):
 
     n = len(test_rows)
     print(f"\n=== {label} ===")
-    print(f"parsed: {n_parsed}/{n}")
+    print(f"parsed: {n_parsed}/{n}" + (f" ({n_errors} hard errors)" if n_errors else ""))
     print(f"class accuracy: {n_correct_class}/{n} = {n_correct_class/n:.3f}")
     print(f"is_anomaly accuracy: {n_correct_anomaly}/{n} = {n_correct_anomaly/n:.3f}")
-    print("per-class recall:")
+    # n=32 over 12 classes is ~2-3 examples per class: one flipped example
+    # moves overall accuracy by ~3 points and a per-class row by 33-50. The
+    # counts are printed next to every ratio precisely so nobody quotes
+    # these as precise numbers.
+    print(f"NOTE: n={n} total. At this size one example is "
+          f"{100/n:.1f} points of overall accuracy - treat per-class rows "
+          f"below as indicative, not measured.")
+    print("per-class recall (correct/total):")
     for cls in AHC_CLASSES:
         c, t = per_class.get(cls, [0, 0])
         if t:
@@ -139,12 +155,61 @@ def main():
     from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
     from peft import PeftModel
 
+    def load_base():
+        """Load the base the SAME way training did: 4-bit NF4.
+
+        finetune_ahc_vlm.py trains with load_in_4bit=True, so the LoRA is fit
+        against NF4-quantised frozen weights. Attaching that adapter to an
+        unquantised fp16 base - which this used to do - is a known and
+        uncontrolled accuracy loss: the number reported would not describe
+        the model that was trained. Also: transformers 5.0 removed
+        `torch_dtype=` in favour of `dtype=`, so pass the new name and fall
+        back, rather than having it silently swallowed and the model land in
+        fp32 (~12GB, which does not fit a 15GB T4 twice over).
+        """
+        kwargs = {"device_map": "auto"}
+        try:
+            from transformers import BitsAndBytesConfig
+            import torch
+            kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.float16)
+        except Exception as e:
+            print(f"[eval] 4-bit unavailable ({type(e).__name__}) - loading full "
+                  f"precision. NOTE: the adapter was trained in 4-bit, so this "
+                  f"comparison is not exactly the trained model.")
+            kwargs["dtype"] = "auto"
+        for dt in ("dtype", "torch_dtype", None):
+            try:
+                kw = dict(kwargs)
+                if dt and "quantization_config" not in kw:
+                    kw[dt] = "auto"
+                return Qwen2_5_VLForConditionalGeneration.from_pretrained(a.base, **kw)
+            except TypeError:
+                continue
+        raise RuntimeError("[eval] could not load the base model")
+
+    def load_proc(prefer):
+        """Prefer the processor training SAVED. Unsloth mutates the processor
+        it returns (pixel bounds, padding side, chat-template details), and
+        finetune_ahc_vlm.py deliberately saves it next to the adapter. Scoring
+        with the stock base processor instead is a train/eval preprocessing
+        mismatch that shows up as a depressed fine-tuned score for no
+        modelling reason."""
+        try:
+            p = AutoProcessor.from_pretrained(prefer)
+            print(f"[eval] processor loaded from {prefer}")
+            return p
+        except Exception:
+            print(f"[eval] no processor at {prefer} - falling back to {a.base}")
+            return AutoProcessor.from_pretrained(a.base)
+
     results = {}
     if not a.skip_base:
-        base_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            a.base, device_map="auto", torch_dtype="auto")
+        base_model = load_base()
         base_model.eval()
-        proc = AutoProcessor.from_pretrained(a.base)
+        proc = load_proc(a.base)
         results["zero_shot_base"] = score(base_model, proc, test_rows,
                                           "zero-shot base (no fine-tune)", a.frames_root, a.max_pixels)
         # `del` alone does not return VRAM to the allocator, so the second
@@ -157,24 +222,50 @@ def main():
         gc.collect()
         torch.cuda.empty_cache()
 
-    tuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        a.base, device_map="auto", torch_dtype="auto")
+    tuned_model = load_base()
     tuned_model = PeftModel.from_pretrained(tuned_model, a.adapter)
     tuned_model.eval()
-    proc = AutoProcessor.from_pretrained(a.base)
+
+    # Verify the adapter actually attached to something. Unsloth remaps the
+    # base repo and transformers reorganised Qwen2.5-VL's submodule paths
+    # across 4.5x -> 5.x, so PeftModel.from_pretrained can load while
+    # matching ZERO target modules - in which case the "fine-tuned" score is
+    # just the base model again, and the verdict below is meaningless. Fail
+    # loudly instead of reporting a fake comparison.
+    n_lora = sum(1 for n, _ in tuned_model.named_modules() if "lora" in n.lower())
+    if n_lora == 0:
+        raise SystemExit(
+            f"[eval] the adapter at {a.adapter} matched NO modules in this base "
+            f"model - every 'fine-tuned' number would silently be the base "
+            f"model's. This usually means the base repo or the module naming "
+            f"differs from training. Re-check --base matches what "
+            f"finetune_ahc_vlm.py used.")
+    print(f"[eval] adapter attached: {n_lora} LoRA modules injected")
+    proc = load_proc(a.adapter)
     results["finetuned"] = score(tuned_model, proc, test_rows,
                                  f"fine-tuned ({a.adapter})", a.frames_root, a.max_pixels)
 
     if "zero_shot_base" in results:
         b, f = results["zero_shot_base"]["class_acc"], results["finetuned"]["class_acc"]
+        n = len(test_rows)
+        gap_examples = abs(f - b) * n
         winner = "fine-tuned" if f > b else ("zero-shot base" if b > f else "tie")
-        print(f"\n[verdict] {winner} wins on class accuracy (finetuned={f:.3f} vs base={b:.3f})")
-        if f <= b:
+        print(f"\n[verdict] {winner} leads on class accuracy "
+              f"(finetuned={f:.3f} vs base={b:.3f}) on n={n}")
+        # Declaring a winner from a 1-2 example gap on 32 samples is noise,
+        # not a result. Say so rather than letting the label stand alone.
+        if gap_examples < 3:
+            print(f"[verdict] the gap is only {gap_examples:.0f} example(s) of "
+                  f"{n} - that is within noise at this sample size. Do NOT "
+                  f"present either as the winner; report both numbers and the n.")
+        elif f <= b:
             print("[verdict] fine-tune did NOT beat zero-shot prompting - "
                   "report both numbers, do not present the adapter as the pick.")
 
     import os
-    os.makedirs("out", exist_ok=True)
+    out_dir = os.path.dirname(a.out)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2)
     print(f"[eval] full results -> {a.out}")

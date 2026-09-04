@@ -266,20 +266,44 @@ def main():
     print(f"[extract] {len(classes)} classes total, {a.frames_per_crop} frames/example, "
           f"{a.crops_per_event} crops/event"
           + (f", running only: {sorted(wanted)}" if wanted else ""))
-    for cls_name in classes:
-        if wanted and cls_name not in wanted:
-            continue
-        all_rows += process_class(train_root / cls_name, cls_name, out, a, is_test=False)
+    # Write the manifest incrementally, one class at a time, and keep going
+    # if a single class blows up. This is a 75-minute stage: previously the
+    # manifest was written only after every class finished, so one malformed
+    # CSV cell, one missing column, or a full disk anywhere in it left ~34k
+    # orphan JPEGs and no manifest at all - and the next run cleared them
+    # and started over.
+    Path(a.manifest).parent.mkdir(parents=True, exist_ok=True)
+    manifest_f = open(a.manifest, "a" if a.append else "w", encoding="utf-8")
 
+    def flush(rows):
+        for r in rows:
+            manifest_f.write(json.dumps(r) + "\n")
+        manifest_f.flush()
+
+    failed = []
+    todo = [(train_root / c, c, False) for c in classes
+            if not (wanted and c not in wanted)]
     test_dir = root / "test"
     if (test_dir / "ground_truth.csv").exists() and (wanted is None or "__test__" in wanted):
-        all_rows += process_class(test_dir, "__test__", out, a, is_test=True)
+        todo.append((test_dir, "__test__", True))
 
-    Path(a.manifest).parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if a.append else "w"
-    with open(a.manifest, mode, encoding="utf-8") as f:
-        for r in all_rows:
-            f.write(json.dumps(r) + "\n")
+    for cls_dir, cls_name, is_test in todo:
+        try:
+            rows = process_class(cls_dir, cls_name, out, a, is_test=is_test)
+        except Exception as e:
+            failed.append(cls_name)
+            print(f"[extract] {cls_name}: FAILED ({type(e).__name__}: {e}) - "
+                  f"continuing with the remaining classes; the work already "
+                  f"written is kept")
+            continue
+        all_rows += rows
+        flush(rows)
+
+    manifest_f.close()
+    if failed:
+        print(f"[extract] WARNING: {len(failed)} class(es) failed entirely: "
+              f"{failed}. The manifest holds every class that succeeded - "
+              f"re-run with --classes {','.join(failed)} --append to add them.")
 
     train_rows = [r for r in all_rows if r["split"] == "train"]
     test_rows = [r for r in all_rows if r["split"] == "test"]

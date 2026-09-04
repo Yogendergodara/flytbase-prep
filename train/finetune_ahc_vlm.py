@@ -115,6 +115,14 @@ def resolve_paths(row, frames_root):
             for p in row["frame_paths"]]
 
 
+def _bf16_supported():
+    try:
+        import torch
+        return bool(torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+    except Exception:
+        return False
+
+
 def cap_pixels(im, max_pixels):
     """Downscale so W*H <= max_pixels, preserving aspect ratio.
 
@@ -202,10 +210,20 @@ class LazyAHCDataset:
     def __len__(self):
         return len(self.rows) * (2 if self.flip_augment else 1)
 
+    # Mirroring is label-preserving for 10 of the 12 classes, but NOT for
+    # wrong_way_driving: this is left-hand-traffic footage, so a mirror turns
+    # every frame into right-hand traffic. The cue a fixed camera actually
+    # offers ("vehicle on the wrong side relative to the rest of the flow")
+    # is inverted while the label is kept, i.e. contradictory evidence under
+    # one label. Those rows are served unflipped instead of being dropped,
+    # so the class keeps its (already thin) example count.
+    NO_FLIP_CLASSES = {"wrong_way_driving"}
+
     def __getitem__(self, idx):
         if idx >= len(self.rows):        # second half of the index space = flipped views
-            return to_record(self.rows[idx - len(self.rows)], self.frames_root,
-                             self.max_pixels, flip=True)
+            row = self.rows[idx - len(self.rows)]
+            flip = row["class_name"] not in self.NO_FLIP_CLASSES
+            return to_record(row, self.frames_root, self.max_pixels, flip=flip)
         return to_record(self.rows[idx], self.frames_root, self.max_pixels, flip=False)
 
 
@@ -377,6 +395,13 @@ def main():
         output_dir=a.out, save_strategy="epoch", report_to="none",
         remove_unused_columns=False, dataset_text_field="",
         dataset_kwargs={"skip_prepare_dataset": True},
+        # A T4 has no bf16, so fp16 + GradScaler is what keeps LoRA
+        # gradients from underflowing against an fp16 base. Unsloth's own
+        # recipe sets these explicitly rather than trusting a default, and
+        # the failure mode if they are wrong is silent non-convergence -
+        # a run that completes and produces a weak adapter.
+        fp16=not _bf16_supported(), bf16=_bf16_supported(),
+        seed=a.seed,
     )
     # TRL renamed max_seq_length -> max_length at some point, and Unsloth
     # patches SFTConfig on top of whatever TRL is installed. Try the name
@@ -400,12 +425,26 @@ def main():
     else:
         raise last_err
 
-    trainer = SFTTrainer(
-        model=model, tokenizer=tokenizer,
-        data_collator=collator,
-        train_dataset=train_records, eval_dataset=val_records,
-        args=sft_config,
-    )
+    # Trainer's `tokenizer=` kwarg was deprecated in transformers 4.46 and
+    # REMOVED in 5.0 (this stack runs 5.5.0); the replacement is
+    # `processing_class=`. Unsloth's patch layer has historically rewritten
+    # the old name, and its own docs still show `tokenizer=`, so which one
+    # works depends on whether that patch still covers TRL's current
+    # signature. Try the modern name first, fall back to the legacy one.
+    for kw in ("processing_class", "tokenizer"):
+        try:
+            trainer = SFTTrainer(
+                model=model, data_collator=collator,
+                train_dataset=train_records, eval_dataset=val_records,
+                args=sft_config, **{kw: tokenizer},
+            )
+            print(f"[finetune] SFTTrainer accepted {kw}=")
+            break
+        except TypeError as e:
+            last_err = e
+    else:
+        raise last_err
+
     trainer.train()
 
     model.save_pretrained(a.out)

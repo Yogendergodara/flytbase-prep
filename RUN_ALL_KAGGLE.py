@@ -213,11 +213,46 @@ def stage_hazard_train(force):
               "hazard training")
 
 
+def extraction_is_usable(manifest, frames, sample=40):
+    """True only if the manifest's frames actually resolve on disk.
+
+    Checking `manifest.exists() and frames.exists()` was not enough: a
+    partial first extraction leaves a frames tree behind, and a stale
+    manifest can arrive with the repo itself. The second run then skipped
+    extraction and handed the fine-tune a manifest joined against an
+    incomplete tree - drop_missing_frames silently discarded thousands of
+    rows (possibly whole classes), printed one line, and trained anyway on
+    a fraction of the data while looking healthy. Sample real paths instead.
+    """
+    import json as _json
+    if not manifest.exists() or not frames.exists():
+        return False
+    try:
+        rows = [_json.loads(l) for l in open(manifest, encoding="utf-8")]
+    except Exception:
+        return False
+    if not rows:
+        return False
+    step = max(1, len(rows) // sample)
+    checked = missing = 0
+    for r in rows[::step]:
+        for p in r.get("frame_paths", [])[:1]:
+            checked += 1
+            if not (Path(p) if Path(p).is_absolute() else frames / p).exists():
+                missing += 1
+    if missing:
+        print(f"[run-all] existing manifest is stale: {missing}/{checked} sampled "
+              f"frames missing under {frames} - re-extracting rather than "
+              f"training on a partial dataset")
+        return False
+    return True
+
+
 def stage_ahc_extract(force):
     manifest = REPO / "train/ahc_manifest.jsonl"
     frames = WORK / "AHC_frames"
-    if manifest.exists() and frames.exists() and not force:
-        log("Model 3 frames already extracted - skipping")
+    if extraction_is_usable(manifest, frames) and not force:
+        log("Model 3 frames already extracted and verified - skipping")
         return True
     root = find_ahc_root()
     if root is None:
@@ -239,7 +274,13 @@ def stage_ahc_train(force):
     if not (REPO / "train/ahc_manifest.jsonl").exists():
         return False
     log("Model 3: fine-tuning Qwen2.5-VL (~3-6h, 1 GPU)")
-    return sh(f'python train/finetune_ahc_vlm.py --manifest train/ahc_manifest.jsonl '
+    # CUDA_VISIBLE_DEVICES=0 is not cosmetic: Kaggle exposes 2 T4s, and
+    # transformers' Trainer sees n_gpu==2 in a non-distributed launch and
+    # wraps the model in nn.DataParallel - which cannot replicate
+    # bitsandbytes Params4bit across devices. Pinning to one GPU avoids
+    # that class of failure outright, and this job fits in one T4 anyway.
+    return sh(f'CUDA_VISIBLE_DEVICES=0 python train/finetune_ahc_vlm.py '
+              f'--manifest train/ahc_manifest.jsonl '
               f'--frames-root "{WORK}/AHC_frames" --base Qwen/Qwen2.5-VL-3B-Instruct '
               f'--out weights/qwen_ahc_lora --epochs 3', "AHC fine-tune")
 
@@ -274,9 +315,24 @@ def main():
                     help="also retrain Model 1 (5-6h). Off by default because a "
                          "converged checkpoint already exists - see stage_aerial")
     ap.add_argument("--skip-eval", action="store_true")
+    ap.add_argument("--skip-install", action="store_true",
+                    help="skip the pip step (use if deps are already present)")
+    ap.add_argument("--force-hazard", action="store_true",
+                    help="rebuild+retrain Model 2 only, leaving Model 3's "
+                         "75-minute extraction alone")
     a = ap.parse_args()
+    # per-stage force: rebuilding Model 2 after the FloodNet flood fix should
+    # not also redo Model 3's 75-minute extraction, which plain --force would
+    hazard_force = a.force or a.force_hazard
 
     log("Environment")
+    # Install here, not only in the README command: unsloth/trl/peft are
+    # commented out of requirements.txt (Phase-18-only), so a runner invoked
+    # without them would reach the fine-tune 75 minutes in and die on
+    # ModuleNotFoundError.
+    if not a.skip_install:
+        sh(f"{sys.executable} -m pip install -q ultralytics huggingface_hub "
+           f"unsloth trl peft kagglehub", "deps")
     sh("python -c \"import torch; print('cuda:', torch.cuda.is_available(), "
        "'| gpus:', torch.cuda.device_count())\"", "gpu check")
     print(f"[run-all] attached under {INPUT}: "
@@ -286,9 +342,9 @@ def main():
     print(f"[run-all] resolved D-Fire   : {find_dfire()}")
 
     results = {}
-    results["model2_dataset"] = stage_hazard_dataset(a.force)
+    results["model2_dataset"] = stage_hazard_dataset(hazard_force)
     if results["model2_dataset"]:
-        results["model2_train"] = stage_hazard_train(a.force)
+        results["model2_train"] = stage_hazard_train(hazard_force)
 
     results["model3_extract"] = stage_ahc_extract(a.force)
     if results["model3_extract"]:
