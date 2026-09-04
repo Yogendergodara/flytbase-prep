@@ -363,18 +363,48 @@ def main():
               f"Unsloth build ({type(e).__name__}) - loss also covers prompt "
               f"tokens. Training still works; expect slightly worse convergence.")
 
+    # skip_prepare_dataset is REQUIRED for a pre-formatted vision dataset and
+    # is part of Unsloth's own documented vision recipe. Without it TRL runs
+    # its text-SFT preprocessing over the dataset, which calls .map() -
+    # LazyAHCDataset deliberately has no .map (it is a lazy __getitem__
+    # dataset, because materialising every record OOM-killed a session), so
+    # that path would AttributeError at startup, after the 75-minute
+    # extraction had already been paid for.
+    cfg_kwargs = dict(
+        per_device_train_batch_size=1, gradient_accumulation_steps=8,
+        num_train_epochs=a.epochs, learning_rate=a.lr,
+        warmup_ratio=0.05, logging_steps=10, eval_strategy="epoch",
+        output_dir=a.out, save_strategy="epoch", report_to="none",
+        remove_unused_columns=False, dataset_text_field="",
+        dataset_kwargs={"skip_prepare_dataset": True},
+    )
+    # TRL renamed max_seq_length -> max_length at some point, and Unsloth
+    # patches SFTConfig on top of whatever TRL is installed. Try the name
+    # this stack documents, then the other, then neither - a sequence-length
+    # default is survivable, losing the run to a rejected kwarg is not.
+    for extra in ({"max_seq_length": a.max_seq_length},
+                  {"max_length": a.max_seq_length},
+                  {}):
+        try:
+            sft_config = SFTConfig(**cfg_kwargs, **extra)
+            if extra:
+                print(f"[finetune] SFTConfig accepted {list(extra)[0]}="
+                      f"{a.max_seq_length}")
+            else:
+                print(f"[finetune] WARNING: SFTConfig rejected both "
+                      f"max_seq_length and max_length - using this TRL's "
+                      f"default sequence length, which may truncate examples.")
+            break
+        except TypeError as e:
+            last_err = e
+    else:
+        raise last_err
+
     trainer = SFTTrainer(
         model=model, tokenizer=tokenizer,
         data_collator=collator,
         train_dataset=train_records, eval_dataset=val_records,
-        args=SFTConfig(
-            per_device_train_batch_size=1, gradient_accumulation_steps=8,
-            num_train_epochs=a.epochs, learning_rate=a.lr,
-            warmup_ratio=0.05, logging_steps=10, eval_strategy="epoch",
-            output_dir=a.out, save_strategy="epoch", report_to="none",
-            remove_unused_columns=False, dataset_text_field="",
-            max_seq_length=a.max_seq_length,
-        ),
+        args=sft_config,
     )
     trainer.train()
 
