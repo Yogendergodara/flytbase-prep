@@ -35,6 +35,9 @@ from pathlib import Path
 REPO = Path("/kaggle/working/flytbase-prep")
 WORK = Path("/kaggle/working/datasets")
 INPUT = Path("/kaggle/input")
+# set by stage_ahc_extract when pre-extracted frames are found; the train and
+# eval stages must use the SAME root the manifest was verified against
+AHC_FRAMES_ROOT = None
 
 
 def log(msg):
@@ -259,12 +262,63 @@ def extraction_is_usable(manifest, frames, sample=40):
     return True
 
 
+def find_pre_extracted(manifest, slug="yogendergodara/ahc-framess"):
+    """Locate an already-extracted frames dataset, attached or downloadable.
+
+    Extraction costs ~75 minutes and /kaggle/working is wiped on every
+    session restart, so it was being paid repeatedly. Uploading the frames
+    once removes that entirely - but only if the code can find them, and
+    their nesting varies (zipping `AHC_frames` vs `AHC_frames/*` puts the
+    class folders at different depths, which cost two failed runs).
+
+    Rather than assume a layout, resolve it FROM THE MANIFEST: take the
+    first frame path's leading folder and find the directory that actually
+    contains it. Returns None if nothing matches, so the caller falls back
+    to extracting.
+    """
+    import json as _json
+    if not manifest.exists():
+        return None
+    try:
+        rel = _json.loads(open(manifest, encoding="utf-8").readline())["frame_paths"][0]
+    except Exception:
+        return None
+    first = rel.replace("\\", "/").split("/")[0]        # e.g. fighting_or_violence
+
+    roots = [c for c in (find_dir("framess"), find_dir("ahc-frames"),
+                         find_dir("ahc_frames")) if c]
+    for root in roots:
+        for d in root.rglob(first):
+            if d.is_dir():
+                return d.parent
+    fetched = kagglehub_fetch(slug)
+    if fetched:
+        for d in fetched.rglob(first):
+            if d.is_dir():
+                return d.parent
+    return None
+
+
 def stage_ahc_extract(force):
     manifest = REPO / "train/ahc_manifest.jsonl"
     frames = WORK / "AHC_frames"
     if extraction_is_usable(manifest, frames) and not force:
         log("Model 3 frames already extracted and verified - skipping")
         return True
+
+    # prefer pre-extracted frames over re-decoding 1,539 videos
+    if not force:
+        pre = find_pre_extracted(manifest)
+        if pre and extraction_is_usable(manifest, pre):
+            log(f"Model 3: using PRE-EXTRACTED frames at {pre} - skipping the "
+                f"~75 minute extraction entirely")
+            global AHC_FRAMES_ROOT
+            AHC_FRAMES_ROOT = pre
+            return True
+        if pre:
+            print(f"[run-all] found {pre} but its frames do not match the "
+                  f"manifest - extracting fresh instead of training on a "
+                  f"mismatched pair")
     root = find_ahc_root()
     if root is None:
         print("[run-all] SKIP Model 3 - the AHC dataset was neither attached "
@@ -299,7 +353,8 @@ def stage_ahc_train(force):
     # prompt + JSON target actually need.
     return sh(f'CUDA_VISIBLE_DEVICES=0 python train/finetune_ahc_vlm.py '
               f'--manifest train/ahc_manifest.jsonl '
-              f'--frames-root "{WORK}/AHC_frames" --base Qwen/Qwen2.5-VL-3B-Instruct '
+              f'--frames-root "{AHC_FRAMES_ROOT or (WORK / "AHC_frames")}" '
+              f'--base Qwen/Qwen2.5-VL-3B-Instruct '
               f'--max-seq-length 2048 --max-frames 3 '
               f'--out weights/qwen_ahc_lora --epochs 3', "AHC fine-tune")
 
@@ -309,7 +364,8 @@ def stage_ahc_eval(force):
         return False
     log("Model 3: evaluating on the held-out test split (mandatory)")
     return sh(f'python train/eval_ahc_vlm.py --manifest train/ahc_manifest.jsonl '
-              f'--frames-root "{WORK}/AHC_frames" --base Qwen/Qwen2.5-VL-3B-Instruct '
+              f'--frames-root "{AHC_FRAMES_ROOT or (WORK / "AHC_frames")}" '
+              f'--base Qwen/Qwen2.5-VL-3B-Instruct '
               f'--adapter weights/qwen_ahc_lora', "AHC eval")
 
 
