@@ -47,10 +47,21 @@ def sh(cmd, label):
     A stage failing must not silently poison later stages that depend on it,
     but must also not abort stages that DON'T - so this reports rather than
     raises, and main() decides what a failure blocks.
+
+    PYTHONUNBUFFERED=1 is not optional here: a Python child process whose
+    stdout is a pipe (which it always is, one level down from Jupyter's own
+    %%bash pipe) switches to full block buffering, not line buffering. Seen
+    directly in this session - a plain `python train/finetune_ahc_vlm.py`
+    run showed nothing until the process either filled a buffer or crashed,
+    at which point everything printed at once. That looked like a hang; it
+    was actually one and a half hours of silent, real progress. Every stage
+    launched from here inherits this fix instead of needing a `-u` flag
+    remembered per command.
     """
     print(f"\n$ {cmd}\n", flush=True)
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     t0 = time.time()
-    rc = subprocess.call(cmd, shell=True, cwd=str(REPO))
+    rc = subprocess.call(cmd, shell=True, cwd=str(REPO), env=env)
     mins = (time.time() - t0) / 60
     print(f"\n[run-all] {label}: {'OK' if rc == 0 else f'FAILED (exit {rc})'} "
           f"after {mins:.1f} min", flush=True)
@@ -339,8 +350,8 @@ def main():
     # without them would reach the fine-tune 75 minutes in and die on
     # ModuleNotFoundError.
     if not a.skip_install:
-        sh(f"{sys.executable} -m pip install -q ultralytics huggingface_hub "
-           f"unsloth trl peft kagglehub", "deps")
+        sh(f'"{sys.executable}" -m pip install -q ultralytics huggingface_hub '
+           f'unsloth trl peft kagglehub', "deps")
     sh("python -c \"import torch; print('cuda:', torch.cuda.is_available(), "
        "'| gpus:', torch.cuda.device_count())\"", "gpu check")
     print(f"[run-all] attached under {INPUT}: "

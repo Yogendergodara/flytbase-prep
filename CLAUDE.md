@@ -284,10 +284,28 @@ defaults to 0 until the bank is validated on real footage (G-I).
 `python run.py --video x.mp4` runs tracking → events → geometric fusion only.
 The presets turn the rest on.
 
-Trained weights exist on Kaggle (`weights/aerial_night/weights/best.pt`,
-epoch 25, mAP50-95 0.291) but have **not yet been downloaded** into this
-repo's `weights/` — treat the local path as still absent until confirmed
-downloaded.
+**Trained weights now downloaded and present locally** (2026-09-05, verified
+as intact zip archives, not just copied):
+- `weights/aerial_night/weights/best.pt` (19MB) — Model 1, Phase 5,
+  VisDrone-only, epoch 25, mAP50-95 0.291. Pool 1 v2 (combined with
+  UIT-ADrone) never ran - still blocked, no verified UIT-ADrone source.
+- `weights/scene_hazard/weights/best.pt` (3.1MB) — Model 2, `yolo11n-cls`,
+  trained on Kaggle 2026-09-04/05, **90.2% val top1 accuracy** (FloodNet +
+  D-Fire, `train/build_scene_classifier_dataset.py`). Known weak point:
+  `flood` class val set is ~8 images (this FloodNet copy's Track-1 split has
+  very few labelled flood images and does not include Track 2) - the 90.2%
+  headline is not evenly earned across all 4 classes, say so if asked.
+
+**Neither model has a real consumer wired into the pipeline yet.** Model 2
+was always meant to feed a "P20 scene-scan" module referenced in
+`DATASET_PLAN.md` - that module was never built, only planned. The trained
+`.pt` file exists and is verified good; there is no code in this repo that
+loads and calls it. Building that integration is separate, unstarted work,
+not a config oversight.
+
+Model 3 (Qwen2.5-VL LoRA, 12-class AHC anomaly classifier) is training on
+Kaggle as of this writing - see `train/finetune_ahc_vlm.py`,
+`RUN_ALL_KAGGLE.py`. `weights/qwen_ahc_lora/` does not exist locally yet.
 
 ## Dataset build scripts (DATASET_PLAN.md Phase D2-D4, written not run)
 `train/build_aerial_dataset.py` (Pool 1: VisDrone + ~15k-frame stratified
