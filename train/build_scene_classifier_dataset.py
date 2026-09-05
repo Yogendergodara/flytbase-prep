@@ -100,6 +100,31 @@ def split_scenes(scene_to_items, val_frac, seed, source=""):
     return set(keys) - val_keys, val_keys
 
 
+def _floodnet_scene_key(img_path, bucket=50):
+    """Group FloodNet images into pseudo-scenes instead of one-per-image.
+
+    This module's docstring promises a scene-level split so near-duplicate
+    frames cannot straddle train/val - and split_scenes honours that - but
+    FloodNet was keyed by `img_path.stem`, i.e. one image per "scene", which
+    degrades the whole thing into a per-image split. FloodNet is overlapping
+    aerial tiles from the same post-hurricane flights, so adjacent tiles end
+    up on both sides and the reported flood accuracy is inflated by
+    near-duplicate leakage.
+
+    FloodNet filenames are bare sequential ids (6413.jpg, 6414.jpg ...) with
+    no flight field to group on, so consecutive ids are bucketed together as
+    a proxy for "same pass over the same area". This is a heuristic, not
+    ground truth about flight boundaries - it is defensible because
+    neighbouring ids are far more likely to overlap than distant ones, and
+    it is strictly better than the per-image split it replaces. Files whose
+    stem is not numeric fall back to the parent directory.
+    """
+    m = re.match(r"^(\d+)", img_path.stem)
+    if m:
+        return f"floodnet_bucket_{int(m.group(1)) // bucket}"
+    return f"floodnet_dir_{img_path.parent.name}"
+
+
 def _find_flooded_folders(root):
     """FloodNet's Track-1 classification release ships two folders whose
     names vary slightly by mirror (`Flooded`/`Non-Flooded`,
@@ -184,10 +209,20 @@ def _harvest_track2(root, flood_pixel_values, scene_to_items):
         except Exception:
             continue
         label = "flood" if np.isin(mask, flood_vals).mean() > 0.02 else "normal"
+        key = _floodnet_scene_key(img_path)
+        # Track-1 WINS on conflict. Both tracks cover the same imagery, so a
+        # stem can appear in each - Track-1 from a human-assigned
+        # Flooded/Non-Flooded folder, Track-2 from a mask threshold. Without
+        # this, both were appended and _copy wrote the SAME image into
+        # train/flood AND train/normal under different names: the model gets
+        # one picture with two contradictory labels. Track-1's folder label
+        # is the more direct evidence, so a stem already claimed by it is
+        # not overwritten here.
+        if any(p == img_path or p.stem == img_path.stem
+               for p, _ in scene_to_items.get(key, [])):
+            continue
         n_flood += label == "flood"
-        # key by stem so Track-1 and Track-2 copies of the same scene
-        # cannot land on opposite sides of the split
-        scene_to_items[img_path.stem].append((img_path, label))
+        scene_to_items[key].append((img_path, label))
         added += 1
     print(f"[scene-hazard] FloodNet Track-2: +{added} images from masks "
           f"(flood pixel values {flood_vals}) -> {n_flood} flood, {added - n_flood} normal")
@@ -221,7 +256,7 @@ def build_floodnet(root, flood_pixel_values, out, val_frac, seed, use_track2=Tru
                     print(f"[scene-hazard] FloodNet: {label_dir.name}/ images nested under "
                           f"{label_dir.name}/{img_child.name}/")
             for img_path in imgs:
-                scene_to_items[img_path.stem].append((img_path, label))
+                scene_to_items[_floodnet_scene_key(img_path)].append((img_path, label))
     else:
         img_dir, mask_dir = root / "images", root / "masks"
         if not img_dir.exists() or not mask_dir.exists():
@@ -239,7 +274,7 @@ def build_floodnet(root, flood_pixel_values, out, val_frac, seed, use_track2=Tru
             mask = np.array(Image.open(mask_path))
             frac_flood = np.isin(mask, list(flood_vals)).mean()
             label = "flood" if frac_flood > 0.02 else "normal"
-            scene_to_items[img_path.stem].append((img_path, label))
+            scene_to_items[_floodnet_scene_key(img_path)].append((img_path, label))
 
     # Track 2 is additive, not a fallback: Track 1's labelled split is too
     # small on its own (51 flooded images -> a 43/8 flood class), and Track 2
@@ -420,10 +455,40 @@ def main():
 
     downsample_normal(out, a.seed)
 
+    present, empty_val, empty_train = [], [], []
     for cls in CLASSES:
         n_train = len(list((out / "train" / cls).glob("*"))) if (out / "train" / cls).exists() else 0
         n_val = len(list((out / "val" / cls).glob("*"))) if (out / "val" / cls).exists() else 0
         print(f"[scene-hazard] {cls}: train={n_train} val={n_val}")
+        if n_train:
+            present.append(cls)
+            if not n_val:
+                empty_val.append(cls)
+        elif n_val:
+            empty_train.append(cls)
+
+    # Ultralytics builds a torchvision ImageFolder PER SPLIT, deriving
+    # class->index from that split's sorted subdirectory names. A class with
+    # images in train/ but none in val/ therefore shifts every subsequent
+    # class's index in val only - so val accuracy is computed against
+    # mislabelled indices and is silently meaningless. Nothing fails; the
+    # number just stops meaning anything. `flood` is the realistic candidate
+    # here, so check rather than hope.
+    if empty_val or empty_train:
+        for cls in empty_val:
+            (out / "val" / cls).mkdir(parents=True, exist_ok=True)
+        print(f"\n[scene-hazard] WARNING: class/index mismatch between splits.")
+        if empty_val:
+            print(f"  present in train but EMPTY in val: {empty_val}")
+            print(f"  -> created empty val/ dirs to keep the class->index map "
+                  f"aligned across splits, but a class with zero val images "
+                  f"has NO measured accuracy - do not quote a per-class number "
+                  f"for it, and treat the overall val figure as covering only "
+                  f"the other classes.")
+        if empty_train:
+            print(f"  present in val but MISSING from train: {empty_train} "
+                  f"- these cannot be learned at all; the model can never "
+                  f"predict them.")
     print(f"[scene-hazard] dataset ready at {out} "
           f"(yolo classify train data={out} model=yolo11n-cls.pt imgsz=224 epochs=15 batch=32)")
 
