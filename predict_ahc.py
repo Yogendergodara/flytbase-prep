@@ -99,6 +99,60 @@ def video_duration(path):
     return (n / fps) if fps > 0 else 0.0
 
 
+class HazardScreen:
+    """Cheap always-on stage: the trained yolo11n-cls fire/smoke/flood model.
+
+    The brief calls for "a lightweight always-on stage with a heavier
+    verification step", and for inference cheap enough to run across many
+    feeds at once. This is that first stage - measured at 1.2ms/image
+    during its own training run, against ~seconds per call for the 3B VLM.
+
+    It does NOT short-circuit the VLM. Fire/smoke/flood are 3 of 12 classes,
+    so a confident hazard call cannot answer the other 9, and letting a
+    small classifier veto the VLM would trade precision for latency in the
+    direction the brief explicitly warns about ("false alarms matter as
+    much as missed detections"). It is used two ways instead: as a recorded
+    second opinion, and to rescue the case where the VLM says `normal` but
+    this model is highly confident a hazard is present - a missed detection
+    the cheap stage can catch for almost no cost.
+    """
+
+    HAZARD = {"fire", "smoke", "flood"}
+    # flood -> the official class string; the classifier's own label set is
+    # {fire, smoke, flood, normal}, which is not the 12-class vocabulary
+    TO_AHC = {"fire": "fire", "smoke": "smoke", "flood": "waterlogging_or_flood"}
+
+    def __init__(self, weights, conf=0.80):
+        from ultralytics import YOLO
+        self.model = YOLO(str(weights))
+        self.conf = conf
+        self.calls = 0
+        self.seconds = 0.0
+
+    def screen(self, video_path, t0, t1, n_frames=3):
+        """Returns (ahc_class, confidence) or (None, 0.0)."""
+        import numpy as np
+        frames = extract_frames(str(video_path), t0, t1, n_frames)
+        if not frames:
+            return None, 0.0
+        t = time.time()
+        best_name, best_p = None, 0.0
+        for f in frames:
+            r = self.model.predict(f, verbose=False)[0]
+            probs = r.probs
+            if probs is None:
+                continue
+            name = r.names[int(probs.top1)]
+            p = float(probs.top1conf)
+            if name in self.HAZARD and p > best_p:
+                best_name, best_p = name, p
+        self.seconds += time.time() - t
+        self.calls += 1
+        if best_name and best_p >= self.conf:
+            return self.TO_AHC[best_name], best_p
+        return None, best_p
+
+
 class AHCPredictor:
     """Loads the model once, predicts many videos.
 
@@ -260,6 +314,14 @@ def main():
                     help="value for the `level` column; defaults to 2 with "
                          "--localize (timestamps present) and 1 without")
     ap.add_argument("--limit", type=int, default=0, help="first N videos only (smoke test)")
+    ap.add_argument("--hazard-weights", default="weights/scene_hazard/weights/best.pt",
+                    help="the cheap always-on fire/smoke/flood screen. Runs as a "
+                         "second opinion and can rescue a missed hazard the VLM "
+                         "called normal; never vetoes the VLM. Pass '' to disable.")
+    ap.add_argument("--hazard-conf", type=float, default=0.80,
+                    help="only override a VLM `normal` when the cheap screen is at "
+                         "least this confident - set high on purpose, since the "
+                         "brief weighs false alarms as heavily as misses")
     a = ap.parse_args()
 
     src = Path(a.videos)
@@ -276,6 +338,16 @@ def main():
 
     pred = AHCPredictor(a.base, a.adapter, a.max_pixels, a.max_frames)
     level = a.level if a.level is not None else (2 if a.localize else 1)
+
+    screen = None
+    if a.hazard_weights and Path(a.hazard_weights).exists():
+        screen = HazardScreen(a.hazard_weights, a.hazard_conf)
+        print(f"[predict] cheap hazard screen active ({a.hazard_weights})")
+    elif a.hazard_weights:
+        print(f"[predict] no hazard screen at {a.hazard_weights} - VLM only")
+
+    total_video_seconds = 0.0
+    n_rescued = 0
 
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,8 +374,21 @@ def main():
                 continue
 
             raw, duration = result
+            total_video_seconds += duration
             cls = _coerce_class((raw or {}).get("class_name")) or "normal"
             is_anom = _as_bool((raw or {}).get("is_anomaly")) if raw else False
+
+            # cheap-stage rescue: only ever promotes `normal` -> a hazard the
+            # small model is highly confident about. It cannot change one
+            # anomaly class into another, and cannot silence the VLM.
+            if screen is not None and cls == "normal":
+                hz, p = screen.screen(path, 0.0, duration, a.max_frames)
+                if hz:
+                    print(f"[predict]   cheap screen overrode normal -> {hz} (p={p:.2f})")
+                    cls, n_rescued = hz, n_rescued + 1
+                    raw = dict(raw or {})
+                    raw["description"] = (raw.get("description")
+                                          or f"{hz} detected by hazard screen")
             # keep the two fields consistent: a class of `normal` with
             # is_anomaly=true (or the reverse) is self-contradictory and the
             # scorer reads both
@@ -326,9 +411,32 @@ def main():
             print(f"[predict] {i}/{len(videos)} {vid}: {cls} "
                   f"{'(' + t0 + '-' + t1 + 's)' if t0 else ''}", flush=True)
 
-    mins = (time.time() - t_start) / 60
+    elapsed = time.time() - t_start
     print(f"\n[predict] wrote {out_path} - {len(videos)} rows, {n_anom} anomalous, "
-          f"{n_failed} failed, in {mins:.1f} min")
+          f"{n_failed} failed, in {elapsed/60:.1f} min")
+    if n_rescued:
+        print(f"[predict] cheap hazard screen rescued {n_rescued} video(s) the "
+              f"VLM had called normal")
+
+    # The brief's central constraint is real-time on limited GPU, so state a
+    # measured number rather than a claim. Realtime factor > 1 means the
+    # system processes footage faster than it plays.
+    if total_video_seconds > 0:
+        rtf = total_video_seconds / elapsed
+        print(f"\n[predict] === LATENCY (measured, not estimated) ===")
+        print(f"  video processed   : {total_video_seconds/60:.1f} min of footage")
+        print(f"  wall clock        : {elapsed/60:.1f} min")
+        print(f"  realtime factor   : {rtf:.2f}x "
+              f"({'faster' if rtf > 1 else 'SLOWER'} than realtime)")
+        print(f"  per video         : {elapsed/max(len(videos),1):.1f} s")
+        if screen is not None and screen.calls:
+            print(f"  cheap screen      : {screen.seconds/screen.calls*1000:.0f} ms/call "
+                  f"over {screen.calls} calls "
+                  f"({100*screen.seconds/elapsed:.1f}% of total time)")
+        print(f"  concurrent feeds  : ~{rtf:.1f} on this one GPU at this sampling rate")
+        print(f"  NOTE: this samples {a.max_frames} frames per clip, it does not "
+              f"decode every frame - that is the design, but say so rather than "
+              f"implying full-framerate processing.")
     if pred.zero_shot:
         print("[predict] REMINDER: this used the ZERO-SHOT base model, not a "
               "fine-tuned adapter. Re-run once training finishes.")
